@@ -364,3 +364,4 @@
 	<li>✓ Clean up source code, add better comments</li>
 	<li>✓ Drag and drop support (multiple files, a folder, a file and a folder, etc.)</li>
 </ul>
+
