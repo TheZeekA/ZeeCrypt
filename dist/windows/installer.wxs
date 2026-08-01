@@ -2,8 +2,11 @@
 <!--
   ZeeCrypt MSI installer, built with WiX Toolset v5 (https://wixtoolset.org/).
 
-  Build (from repo root, after ZeeCrypt.exe and images/lock.ico exist):
-    dotnet tool install --global wix --version 5.0.2
+  Build (from repo root, after ZeeCrypt.exe and images/lock.ico exist).
+  Note: the double-hyphen flags below use U+2011 (non-breaking hyphen), not
+  ASCII '--', because XML comments can't contain a literal '--' - retype the
+  flags with real hyphens before running this in a shell:
+    dotnet tool install ‑‑global wix ‑‑version 5.0.2
     wix build dist/windows/installer.wxs -d ExePath=src/ZeeCrypt.exe -d IconPath=images/lock.ico -d ProductVersion=1.50.0.0 -o ZeeCrypt-Installer.msi
 
   Pinned to WiX v5: v7 introduced a mandatory "Open Source Maintenance Fee"
