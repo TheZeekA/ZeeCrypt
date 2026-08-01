@@ -10,7 +10,7 @@ BLOCK "StringFileInfo"
 	{
 		VALUE "FileVersion", "1.49"
 		VALUE "LegalCopyright", "\xA9 Evan Su & contributors, GPLv3"
-		VALUE "ProductName", "Picocrypt"
+		VALUE "ProductName", "ZeeCrypt"
 	}
 }
 

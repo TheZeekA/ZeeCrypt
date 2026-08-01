@@ -2,10 +2,10 @@ package main
 
 /*
 
-Picocrypt v1.49
+ZeeCrypt v1.49 (fork of Picocrypt by Evan Su)
 Copyright (c) Evan Su
 Released under GPL-3.0-only
-https://github.com/Picocrypt/Picocrypt
+https://github.com/TheZeekA/ZeeCrypt
 
 ~ In cryptography we trust ~
 
@@ -2901,7 +2901,7 @@ func main() {
 		panic(errors.New("rs failed to init"))
 	}
 	// Create the main window
-	window = giu.NewMasterWindow("Picocrypt "+version[1:], 318, 507, giu.MasterWindowFlagsNotResizable)
+	window = giu.NewMasterWindow("ZeeCrypt "+version[1:], 318, 507, giu.MasterWindowFlagsNotResizable)
 
 	// Start the dialog module
 	dialog.Init()

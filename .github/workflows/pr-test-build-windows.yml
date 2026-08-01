@@ -29,7 +29,7 @@ jobs:
     - name: Build
       run: |
         cd src
-        go build -v -ldflags="-s -w -H=windowsgui -extldflags=-static" -o 1.exe Picocrypt.go
+        go build -v -ldflags="-s -w -H=windowsgui -extldflags=-static" -o 1.exe ZeeCrypt.go
       env:
         CGO_ENABLED: 1
         GOAMD64: v1
@@ -59,7 +59,7 @@ jobs:
       run: |
         Invoke-WebRequest -OutFile upx.zip https://github.com/upx/upx/releases/download/v5.0.2/upx-5.0.2-win64.zip
         Expand-Archive -DestinationPath upx upx.zip
-        upx/upx-5.0.2-win64/upx.exe --lzma -o src/Picocrypt.exe src/5.exe
+        upx/upx-5.0.2-win64/upx.exe --lzma -o src/ZeeCrypt.exe src/5.exe
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4

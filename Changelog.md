@@ -1,3 +1,5 @@
+> History prior to the ZeeCrypt fork belongs to the original [Picocrypt](https://github.com/Picocrypt/Picocrypt) project. New entries for ZeeCrypt will be added above this note going forward.
+
 # v1.49 (Released 08/03/2025)
 <ul>
 	<li>✓ Update macOS icon to fit better</li>

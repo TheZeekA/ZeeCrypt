@@ -1,4 +1,4 @@
-module Picocrypt
+module ZeeCrypt
 
 go 1.24.2
 

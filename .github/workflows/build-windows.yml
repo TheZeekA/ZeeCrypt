@@ -32,7 +32,7 @@ jobs:
     - name: Build
       run: |
         cd src
-        go build -v -ldflags="-s -w -H=windowsgui -extldflags=-static" -o 1.exe Picocrypt.go
+        go build -v -ldflags="-s -w -H=windowsgui -extldflags=-static" -o 1.exe ZeeCrypt.go
       env:
         CGO_ENABLED: 1
         GOAMD64: v1
@@ -62,7 +62,7 @@ jobs:
       run: |
         Invoke-WebRequest -OutFile upx.zip https://github.com/upx/upx/releases/download/v5.0.2/upx-5.0.2-win64.zip
         Expand-Archive -DestinationPath upx upx.zip
-        upx/upx-5.0.2-win64/upx.exe --lzma -o src/Picocrypt.exe src/5.exe
+        upx/upx-5.0.2-win64/upx.exe --lzma -o src/ZeeCrypt.exe src/5.exe
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -81,17 +81,17 @@ jobs:
     - name: Generate checksums
       shell: pwsh
       run: |
-        $hash = Get-FileHash "src/Picocrypt.exe" -Algorithm SHA256
-        echo "CHECKSUM_PICOCRYPT=$($hash.Hash)" >> $env:GITHUB_ENV
+        $hash = Get-FileHash "src/ZeeCrypt.exe" -Algorithm SHA256
+        echo "CHECKSUM_ZEECRYPT=$($hash.Hash)" >> $env:GITHUB_ENV
 
     - name: Release
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          src/Picocrypt.exe
+          src/ZeeCrypt.exe
         tag_name: ${{ env.VERSION }}
         make_latest: true
         append_body: true
         body: |
           **Windows:**
-          `sha256(Picocrypt.exe)  ${{ env.CHECKSUM_PICOCRYPT }}`
+          `sha256(ZeeCrypt.exe)  ${{ env.CHECKSUM_ZEECRYPT }}`
