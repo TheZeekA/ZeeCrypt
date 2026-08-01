@@ -2,6 +2,8 @@
 
 ZeeCrypt is a very small, very simple, yet very secure encryption tool that you can use to protect your files. It's a Windows-only fork of [Picocrypt](https://github.com/Picocrypt/Picocrypt), designed to be the <i>go-to</i> tool for file encryption, with a focus on security, simplicity, and reliability. ZeeCrypt uses the secure XChaCha20 cipher and the Argon2id key derivation function to provide a high level of security.
 
+🚀 **This repo is actively maintained.** Unlike the original (now-archived) Picocrypt, ZeeCrypt is under active development — bug reports, feature requests, and suggestions are welcome, so feel free to open an issue.
+
 <br>
 <p align="center"><img align="center" src="/images/screenshot.png" width="318" alt="ZeeCrypt"></p>
 
