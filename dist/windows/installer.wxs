@@ -3,8 +3,12 @@
   ZeeCrypt MSI installer, built with WiX Toolset v5 (https://wixtoolset.org/).
 
   Build (from repo root, after ZeeCrypt.exe and images/lock.ico exist):
-    dotnet tool install --global wix
+    dotnet tool install --global wix --version 5.0.2
     wix build dist/windows/installer.wxs -d ExePath=src/ZeeCrypt.exe -d IconPath=images/lock.ico -d ProductVersion=1.50.0.0 -o ZeeCrypt-Installer.msi
+
+  Pinned to WiX v5: v7 introduced a mandatory "Open Source Maintenance Fee"
+  EULA that must be accepted before the tool will run at all. Don't bump
+  the major version here without checking the licensing terms first.
 
   Installs per-user (no administrator privileges required), matching the
   portable download's "no admin needed" promise in the README.
