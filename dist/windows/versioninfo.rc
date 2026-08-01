@@ -8,6 +8,7 @@ BLOCK "StringFileInfo"
 {
 	BLOCK "040904B0"
 	{
+		VALUE "CompanyName", "Teddy Jones"
 		VALUE "FileVersion", "1.50"
 		VALUE "LegalCopyright", "\xA9 Evan Su & contributors, GPLv3"
 		VALUE "ProductName", "ZeeCrypt"

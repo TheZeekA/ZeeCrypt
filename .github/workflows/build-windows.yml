@@ -17,6 +17,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Get version tag
+      shell: pwsh
+      run: |
+        $version = Get-Content -Path "VERSION"
+        echo "VERSION=$version" >> $env:GITHUB_ENV
+
     - name: Setup Go
       uses: actions/setup-go@v5
       with:
@@ -64,34 +70,47 @@ jobs:
         Expand-Archive -DestinationPath upx upx.zip
         upx/upx-5.0.2-win64/upx.exe --lzma -o src/ZeeCrypt.exe src/5.exe
 
+    - name: Install WiX
+      shell: pwsh
+      run: dotnet tool install --global wix
+
+    - name: Build installer (MSI)
+      shell: pwsh
+      run: |
+        wix build dist/windows/installer.wxs `
+          -d ExePath=src/ZeeCrypt.exe `
+          -d IconPath=images/lock.ico `
+          -d ProductVersion="$($env:VERSION).0.0" `
+          -o ZeeCrypt-Installer.msi
+
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: build-windows
-        path: src/*.exe
+        path: |
+          src/*.exe
+          ZeeCrypt-Installer.msi
         if-no-files-found: error
         compression-level: 9
-
-    - name: Get version tag
-      shell: pwsh
-      run: |
-        $version = Get-Content -Path "VERSION"
-        echo "VERSION=$version" >> $env:GITHUB_ENV
 
     - name: Generate checksums
       shell: pwsh
       run: |
-        $hash = Get-FileHash "src/ZeeCrypt.exe" -Algorithm SHA256
-        echo "CHECKSUM_ZEECRYPT=$($hash.Hash)" >> $env:GITHUB_ENV
+        $exeHash = Get-FileHash "src/ZeeCrypt.exe" -Algorithm SHA256
+        echo "CHECKSUM_ZEECRYPT=$($exeHash.Hash)" >> $env:GITHUB_ENV
+        $msiHash = Get-FileHash "ZeeCrypt-Installer.msi" -Algorithm SHA256
+        echo "CHECKSUM_INSTALLER=$($msiHash.Hash)" >> $env:GITHUB_ENV
 
     - name: Release
       uses: softprops/action-gh-release@v2
       with:
         files: |
           src/ZeeCrypt.exe
+          ZeeCrypt-Installer.msi
         tag_name: ${{ env.VERSION }}
         make_latest: true
         append_body: true
         body: |
           **Windows:**
           `sha256(ZeeCrypt.exe)  ${{ env.CHECKSUM_ZEECRYPT }}`
+          `sha256(ZeeCrypt-Installer.msi)  ${{ env.CHECKSUM_INSTALLER }}`
