@@ -1,33 +1,29 @@
 # Running From Source
-If you would like to run Picocrypt from source, or an executable isn't available for your platform, you've come to the right place. Running from source is very simple, and I've made it even easier with these straightforward instructions. Unlike VeraCrypt, which requires complex build procedures, SDKs, and assemblers, Picocrypt can easily be compiled from source with only a Go and C compiler. All you need is ten minutes and an Internet connection.
+If you would like to run ZeeCrypt from source, you've come to the right place. Running from source is very simple. ZeeCrypt can easily be compiled from source with only a Go and C compiler. All you need is ten minutes and an Internet connection.
 
 # 1. Prerequisites
-**Linux:**
-```bash
-apt install -y gcc xorg-dev libgtk-3-dev libgl1-mesa-dev libglu1-mesa
-```
-**macOS:**
-```bash
-xcode-select --install
-brew install glfw glew
-```
 **Windows:** A C compiler, ideally TDM-GCC or MinGW-w64
 
 # 2. Install Go
-If you don't have Go installed, download it from <a href="https://go.dev/dl/">here</a> or install it from your package manager (`apt install golang-go`). The latest version of Go is recommended, although you may fall back to Go 1.19 should any issues arise in the future.
+If you don't have Go installed, download it from <a href="https://go.dev/dl/">here</a> or install it from your package manager. The latest version of Go is recommended, although you may fall back to Go 1.19 should any issues arise in the future.
 
 # 3. Get the Source Files
-Download the source files as a zip from the homepage or `git clone` this repository. Next, navigate to the `src/` directory, where you will find the source file (`Picocrypt.go`). You will need this file, along with `go.mod` and `go.sum`, to compile Picocrypt.
+Download the source files as a zip from the homepage or `git clone` this repository. Next, navigate to the `src/` directory, where you will find the source file (`ZeeCrypt.go`). You will need this file, along with `go.mod` and `go.sum`, to compile ZeeCrypt.
 
 # 4. Build From Source
-Finally, build Picocrypt from source:
-- Windows: <code>go build -ldflags="-s -w -H=windowsgui -extldflags=-static" Picocrypt.go</code>
-- macOS: <code>go build -ldflags="-s -w" Picocrypt.go</code>
-- Linux: <code>go build -ldflags="-s -w" Picocrypt.go</code>
+Finally, build ZeeCrypt from source (run this from inside the `src/` directory):
+- Windows: <code>go build -ldflags="-s -w -H=windowsgui -extldflags=-static" .</code>
 
-Note: Make sure to set `CGO_ENABLED=1` if it isn't already.
+Note: Make sure to set `CGO_ENABLED=1` if it isn't already. Also make sure **not** to name `ZeeCrypt.go` explicitly on the command line (e.g. `go build ZeeCrypt.go`) — Go only auto-links the `.syso` icon resource files when building the package as a whole (`.` or no argument), not when you list specific `.go` files.
 
 # 5. Done!
-You should now see a compiled executable (`Picocrypt.exe`/`Picocrypt`) in your directory. You can run it by double-clicking or executing it in your terminal. That wasn't too hard, right? Enjoy!
+You should now see a compiled executable (`ZeeCrypt.exe`) in your directory, with the app icon already embedded. You can run it by double-clicking or executing it in your terminal. That wasn't too hard, right? Enjoy!
 
-Note: On Linux, if hardware OpenGL isn't available, you can set `LIBGL_ALWAYS_SOFTWARE=1` to force Mesa to use software rendering. This way, Picocrypt will be able to run regardless of driver support and can even run without a GPU at all. You may also need to set `NO_AT_BRIDGE=1` to disable the accessibility bus which is known to cause potential issues.
+# Updating the app icon
+The icon is embedded automatically via `rsrc_windows_386.syso`/`rsrc_windows_amd64.syso` in this directory, which `go build` links in without any extra flags. If you change `images/lock.ico`, regenerate these files:
+```
+go install github.com/tc-hib/go-winres@latest
+cd src
+go-winres make
+```
+This reads `src/winres/winres.json` and rewrites the `.syso` files to match the new icon.

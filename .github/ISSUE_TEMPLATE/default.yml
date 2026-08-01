@@ -16,7 +16,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Picocrypt is a "finished" piece of software and is in a maintenance-only stage. This does not mean the software is old, outdated, or abandonware, but that the sole focus is on fixing bugs and ensuring the software continues to work smoothly as opposed to actively developing new features. As well, my time as the developer is very limited considering that Picocrypt brings me no monetary benefit and is entirely a gift of my time and skill to the community.
+        ZeeCrypt is a Windows-only fork of Picocrypt. My time as the developer is limited, so please follow the guidelines below depending on your topic.
   - type: markdown
     attributes:
       value: |
@@ -28,23 +28,23 @@ body:
   - type: markdown
     attributes:
       value: |
-        These are important; make the issue with a short description, and then once the issue is created, add a comment with as many details as possible. Ping me (@HACKERALERT) in the comment so that I can get to it as soon as possible. Keep in mind that I define "bug" as something wrong with Picocrypt's code itself. If it's not Picocrypt's fault, it's not a bug.
+        These are important; make the issue with a short description, and then once the issue is created, add a comment with as many details as possible. Ping me (@TheZeekA) in the comment so that I can get to it as soon as possible. Keep in mind that I define "bug" as something wrong with ZeeCrypt's code itself. If it's not ZeeCrypt's fault, it's not a bug.
   - type: markdown
     attributes:
       value: |
-        ### Problems running/starting Picocrypt
+        ### Problems running/starting ZeeCrypt
   - type: markdown
     attributes:
       value: |
-        Usually these issues are not directly caused by Picocrypt's code. If you're on Windows, see [here](https://github.com/Picocrypt/Picocrypt/issues/91). If you're on Linux, install some packages and try again (see [here](https://github.com/Picocrypt/Picocrypt/tree/main/src#1-prerequisites)). Picocrypt only targets Windows 11, Ubuntu 24/Debian 12, and macOS 15 or later, so *do not create an issue if your OS is older than those; that is your problem, not mine*. If none of the points above help, create the issue and in a separate comment, provide details about the environment you're running in (like OS, DE, etc.). **Do not ping me initially.** Let the issue sit for at least *5 days* to allow other users to potentially help you resolve the issue. If after 5 days, you haven't figured things out, then you may ping me (@HACKERALERT).
+        Usually these issues are not directly caused by ZeeCrypt's code. ZeeCrypt only targets Windows 11, so *do not create an issue if your OS is older than that; that is your problem, not mine*. If none of the points above help, create the issue and in a separate comment, provide details about the environment you're running in. **Do not ping me initially.** Let the issue sit for at least *5 days* to allow other users to potentially help you resolve the issue. If after 5 days, you haven't figured things out, then you may ping me (@TheZeekA).
   - type: markdown
     attributes:
       value: |
-        ### Picocrypt is crashing
+        ### ZeeCrypt is crashing
   - type: markdown
     attributes:
       value: |
-        This is almost always caused by input/output files being in locations where you don't have the correct read/write permissions. Try working within your user/home folder only and copy to/from other places to see if that resolves the crash. If not, run Picocrypt from the command line (e.g. `Picocrypt.exe` or `./Picocrypt`) so you can read the crash message. If you still can't fix the crash, create an issue and ping me (@HACKERALERT).
+        This is almost always caused by input/output files being in locations where you don't have the correct read/write permissions. Try working within your user/home folder only and copy to/from other places to see if that resolves the crash. If not, run ZeeCrypt from the command line (e.g. `ZeeCrypt.exe`) so you can read the crash message. If you still can't fix the crash, create an issue and ping me (@TheZeekA).
   - type: markdown
     attributes:
       value: |
@@ -60,7 +60,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Create the issue and ask your question or support request in a separate comment. **Do not ping me initially.** Let the issue sit for at least *10 days* to give other users a chance to help you first. If after 10 days, you have not received any assistance, then you may ping me (@HACKERALERT).
+        Create the issue and ask your question or support request in a separate comment. **Do not ping me initially.** Let the issue sit for at least *10 days* to give other users a chance to help you first. If after 10 days, you have not received any assistance, then you may ping me (@TheZeekA).
   - type: markdown
     attributes:
       value: |
@@ -68,7 +68,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Picocrypt is mature software; I do not intend to add any new features. **Do not create these types of issues.**
+        ZeeCrypt is under active development; feel free to open these, but understand they may take time to be addressed.
   - type: markdown
     attributes:
       value: |
@@ -76,7 +76,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Picocrypt prioritizes correctness and reliability over performance, so many parts of the code are written sequentially and don't use concurrency. This is intentional and need not be pointed out. Unless performance is absolutely atrocious to the point where it is indicative of a potential bug, **do not make issues about performance**.
+        ZeeCrypt prioritizes correctness and reliability over performance, so many parts of the code are written sequentially and don't use concurrency. This is intentional and need not be pointed out. Unless performance is absolutely atrocious to the point where it is indicative of a potential bug, **do not make issues about performance**.
   - type: markdown
     attributes:
       value: |

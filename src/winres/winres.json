@@ -1,0 +1,10 @@
+{
+  "RT_GROUP_ICON": {
+    "MAINICON": {
+      "0000": "../../images/lock.ico"
+    },
+    "GLFW_ICON": {
+      "0000": "../../images/lock.ico"
+    }
+  }
+}

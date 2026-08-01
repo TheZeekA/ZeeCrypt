@@ -1,3 +1,14 @@
+> History prior to the ZeeCrypt fork belongs to the original [Picocrypt](https://github.com/Picocrypt/Picocrypt) project. New entries for ZeeCrypt will be added above this note going forward.
+
+# v1.50 (Released 08/02/2026)
+<ul>
+	<li>✓ Security: replaced the header's bare SHA3-512 hash of the encryption key with an HMAC-SHA3-512 of the header (flags, salts, IVs), keyed by an independent password-derived subkey. This authenticates the header against tampering in addition to verifying the password (fixes PCC-001 and PCC-006 from the Picocrypt security audit). This is a breaking format change: v1.50 cannot open volumes from Picocrypt or earlier ZeeCrypt versions.</li>
+	<li>✓ Security: fixed a crash when previewing a dropped file whose comment-length header field had been corrupted or tampered with to a negative value (fixes PCC-002).</li>
+	<li>✓ Improved: encrypting with a comment over 99,999 characters now shows a status message and aborts cleanly instead of crashing the app (fixes PCC-005).</li>
+	<li>✓ The "comments are not encrypted" tooltip now also notes that comments aren't tamper-protected.</li>
+	<li>ℹ PCC-003 (unchecked RNG error) and PCC-005 (unbounded comment length silently corrupting volumes) were already fixed upstream before this fork. PCC-004 (decrypt-then-verify) remains open — see Internals.md for why and what mitigates it today.</li>
+</ul>
+
 # v1.49 (Released 08/03/2025)
 <ul>
 	<li>✓ Update macOS icon to fit better</li>

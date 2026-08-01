@@ -2,10 +2,10 @@ package main
 
 /*
 
-Picocrypt v1.49
+ZeeCrypt v1.50 (fork of Picocrypt by Evan Su)
 Copyright (c) Evan Su
 Released under GPL-3.0-only
-https://github.com/Picocrypt/Picocrypt
+https://github.com/TheZeekA/ZeeCrypt
 
 ~ In cryptography we trust ~
 
@@ -53,15 +53,15 @@ const MiB = 1 << 20
 const GiB = 1 << 30
 const TiB = 1 << 40
 
-var WHITE = color.RGBA{0xff, 0xff, 0xff, 0xff}
-var RED = color.RGBA{0xff, 0x00, 0x00, 0xff}
-var GREEN = color.RGBA{0x00, 0xff, 0x00, 0xff}
-var YELLOW = color.RGBA{0xff, 0xff, 0x00, 0xff}
+var NEUTRAL = color.RGBA{0x18, 0x18, 0x1c, 0xff}
+var RED = color.RGBA{0xd3, 0x2f, 0x2f, 0xff}
+var GREEN = color.RGBA{0x2e, 0x7d, 0x32, 0xff}
+var YELLOW = color.RGBA{0xb2, 0x8a, 0x00, 0xff}
 var TRANSPARENT = color.RGBA{0x00, 0x00, 0x00, 0x00}
 
 // Generic variables
 var window *giu.MasterWindow
-var version = "v1.49"
+var version = "v1.50"
 var dpi float32
 var mode string
 var working bool
@@ -129,7 +129,7 @@ var kept bool
 // Status variables
 var startLabel = "Start"
 var mainStatus = "Ready"
-var mainStatusColor = WHITE
+var mainStatusColor = NEUTRAL
 var popupStatus string
 var requiredFreeSpace int64
 
@@ -614,7 +614,7 @@ func draw() {
 								panic(err)
 							} else {
 								mainStatus = "Ready"
-								mainStatusColor = WHITE
+								mainStatusColor = NEUTRAL
 								giu.Update()
 								return
 							}
@@ -642,7 +642,7 @@ func draw() {
 				}()),
 				giu.Custom(func() {
 					if !commentsDisabled {
-						giu.Tooltip("Note: comments are not encrypted!").Build()
+						giu.Tooltip("Note: comments are not encrypted or tamper-protected!").Build()
 					}
 				}),
 			),
@@ -787,7 +787,7 @@ func draw() {
 						}
 						outputFile = file
 						mainStatus = "Ready"
-						mainStatusColor = WHITE
+						mainStatusColor = NEUTRAL
 						giu.Update()
 					}).Build()
 					giu.Tooltip("Save the output with a custom name and path").Build()
@@ -827,11 +827,11 @@ func draw() {
 					if autoUnzip {
 						multiplier++
 					}
-					giu.Style().SetColor(giu.StyleColorText, WHITE).To(
+					giu.Style().SetColor(giu.StyleColorText, NEUTRAL).To(
 						giu.Label("Ready (ensure >" + sizeify(requiredFreeSpace*int64(multiplier)) + " of disk space is free)"),
 					).Build()
 				} else {
-					giu.Style().SetColor(giu.StyleColorText, WHITE).To(
+					giu.Style().SetColor(giu.StyleColorText, NEUTRAL).To(
 						giu.Label("Ready"),
 					).Build()
 				}
@@ -999,31 +999,26 @@ func onDrop(names []string) {
 						return
 					}
 					tmp, err = rsDecode(rs5, tmp)
-					if err == nil {
-						commentsLength, err := strconv.Atoi(string(tmp))
-						if err != nil {
-							comments = "Comment length is corrupted"
+					if valid, _ := regexp.Match(`^\d{5}$`, tmp); err == nil && valid {
+						commentsLength, _ := strconv.Atoi(string(tmp))
+						tmp = make([]byte, commentsLength*3)
+						if n, err := fin.Read(tmp); err != nil || n != commentsLength*3 {
+							fin.Close()
+							mainStatus = "Failed to read comments from file"
+							mainStatusColor = RED
 							giu.Update()
-						} else {
-							tmp = make([]byte, commentsLength*3)
-							if n, err := fin.Read(tmp); err != nil || n != commentsLength*3 {
-								fin.Close()
-								mainStatus = "Failed to read comments from file"
-								mainStatusColor = RED
-								giu.Update()
-								return
-							}
-							comments = ""
-							for i := 0; i < commentsLength*3; i += 3 {
-								t, err := rsDecode(rs1, tmp[i:i+3])
-								if err != nil {
-									comments = "Comments are corrupted"
-									break
-								}
-								comments += string(t)
-							}
-							giu.Update()
+							return
 						}
+						comments = ""
+						for i := 0; i < commentsLength*3; i += 3 {
+							t, err := rsDecode(rs1, tmp[i:i+3])
+							if err != nil {
+								comments = "Comments are corrupted"
+								break
+							}
+							comments += string(t)
+						}
+						giu.Update()
 					} else {
 						comments = "Comments are corrupted"
 						giu.Update()
@@ -1176,7 +1171,7 @@ func onDrop(names []string) {
 func work() {
 	popupStatus = "Starting..."
 	mainStatus = "Working..."
-	mainStatusColor = WHITE
+	mainStatusColor = NEUTRAL
 	working = true
 	padded := false
 	giu.Update()
@@ -1186,8 +1181,9 @@ func work() {
 	var hkdfSalt []byte                // HKDF-SHA3 salt, 32 bytes
 	var serpentIV []byte               // Serpent IV, 16 bytes
 	var nonce []byte                   // 24-byte XChaCha20 nonce
-	var keyHash []byte                 // SHA3-512 hash of encryption key
-	var keyHashRef []byte              // Same as 'keyHash', but used for comparison
+	var flags []byte                   // 5-byte flags field (paranoid, keyfile, ordered, reedsolo, padded)
+	var headerMAC []byte               // HMAC-SHA3-512 of the header, authenticates it and verifies the password
+	var headerMACRef []byte            // Same as 'headerMAC', but used for comparison
 	var keyfileKey []byte              // The SHA3-256 hashes of keyfiles
 	var keyfileHash = make([]byte, 32) // The SHA3-256 of 'keyfileKey'
 	var keyfileHashRef []byte          // Same as 'keyfileHash', but used for comparison
@@ -1602,7 +1598,15 @@ func work() {
 		_, errs[0] = fout.Write(rsEncode(rs5, []byte(version)))
 
 		if len(comments) > 99999 {
-			panic(errors.New("comments exceed maximum length"))
+			fin.Close()
+			fout.Close()
+			if len(allFiles) > 1 || len(onlyFolders) > 0 || compress {
+				os.Remove(inputFile)
+			}
+			os.Remove(fout.Name())
+			mainStatus = "Comment exceeds the maximum length of 99,999 characters"
+			mainStatusColor = RED
+			return
 		}
 
 		// Encode and write the comment length to file
@@ -1618,7 +1622,7 @@ func work() {
 		}
 
 		// Configure flags and write to file
-		flags := make([]byte, 5)
+		flags = make([]byte, 5)
 		if paranoid { // Paranoid mode selected
 			flags[0] = 1
 		}
@@ -1669,7 +1673,7 @@ func work() {
 		_, errs[7] = fout.Write(rsEncode(rs24, nonce))
 
 		// Write placeholders for future use
-		_, errs[8] = fout.Write(make([]byte, 192))  // Hash of encryption key
+		_, errs[8] = fout.Write(make([]byte, 192))  // HMAC-SHA3-512 of the header
 		_, errs[9] = fout.Write(make([]byte, 96))   // Hash of keyfile key
 		_, errs[10] = fout.Write(make([]byte, 192)) // BLAKE2b/HMAC-SHA3 tag
 
@@ -1707,7 +1711,7 @@ func work() {
 		fin.Read(make([]byte, commentsLength*3))
 		total -= int64(commentsLength) * 3
 
-		flags := make([]byte, 15)
+		flags = make([]byte, 15)
 		fin.Read(flags)
 		flags, errs[2] = rsDecode(rs5, flags)
 		paranoid = flags[0] == 1
@@ -1734,9 +1738,9 @@ func work() {
 		fin.Read(nonce)
 		nonce, errs[6] = rsDecode(rs24, nonce)
 
-		keyHashRef = make([]byte, 192)
-		fin.Read(keyHashRef)
-		keyHashRef, errs[7] = rsDecode(rs64, keyHashRef)
+		headerMACRef = make([]byte, 192)
+		fin.Read(headerMACRef)
+		headerMACRef, errs[7] = rsDecode(rs64, headerMACRef)
 
 		keyfileHashRef = make([]byte, 96)
 		fin.Read(keyfileHashRef)
@@ -1893,16 +1897,29 @@ func work() {
 	popupStatus = "Calculating values..."
 	giu.Update()
 
-	// Hash the encryption key for comparison when decrypting
-	tmp := sha3.New512()
-	if _, err := tmp.Write(key); err != nil {
-		panic(err)
+	// Authenticate the header's decryption parameters (flags, salts, IVs) with
+	// an HMAC keyed by a subkey independent from the data-encryption and
+	// data-MAC keys. A successful comparison proves both a correct password
+	// and an untampered header, replacing the old bare hash of the key.
+	// The comment field is intentionally excluded (see the UI tooltip warning
+	// that comments aren't tamper-protected): it isn't re-derived from disk
+	// during decryption, so including it here could cause spurious failures.
+	headerSubkey := make([]byte, 32)
+	headerHKDF := hkdf.New(sha3.New256, key, hkdfSalt, []byte("zeecrypt-header-mac"))
+	if n, err := headerHKDF.Read(headerSubkey); err != nil || n != 32 {
+		panic(errors.New("fatal hkdf.Read error"))
 	}
-	keyHash = tmp.Sum(nil)
+	headerMACFunc := hmac.New(sha3.New512, headerSubkey)
+	for _, part := range [][]byte{flags, salt, hkdfSalt, serpentIV, nonce} {
+		if _, err := headerMACFunc.Write(part); err != nil {
+			panic(err)
+		}
+	}
+	headerMAC = headerMACFunc.Sum(nil)
 
 	// Validate the password and/or keyfiles
 	if mode == "decrypt" {
-		keyCorrect := subtle.ConstantTimeCompare(keyHash, keyHashRef) == 1
+		keyCorrect := subtle.ConstantTimeCompare(headerMAC, headerMACRef) == 1
 		keyfileCorrect := subtle.ConstantTimeCompare(keyfileHash, keyfileHashRef) == 1
 		incorrect := !keyCorrect
 		if keyfile || len(keyfiles) > 0 {
@@ -1915,7 +1932,7 @@ func work() {
 				kept = true
 			} else {
 				if !keyCorrect {
-					mainStatus = "The provided password is incorrect"
+					mainStatus = "The provided password is incorrect, or the file has been tampered with"
 				} else {
 					if keyfileOrdered {
 						mainStatus = "Incorrect keyfiles or ordering"
@@ -2215,7 +2232,7 @@ func work() {
 		if _, err := fout.Seek(int64(309+len(comments)*3), 0); err != nil {
 			panic(err)
 		}
-		if _, err := fout.Write(rsEncode(rs64, keyHash)); err != nil {
+		if _, err := fout.Write(rsEncode(rs64, headerMAC)); err != nil {
 			panic(err)
 		}
 		if _, err := fout.Write(rsEncode(rs32, keyfileHash)); err != nil {
@@ -2628,7 +2645,7 @@ func cancel(fin *os.File, fout *os.File) {
 	fin.Close()
 	fout.Close()
 	mainStatus = "Operation cancelled by user"
-	mainStatusColor = WHITE
+	mainStatusColor = NEUTRAL
 }
 
 // Reset the UI to a clean state with nothing selected or checked
@@ -2682,7 +2699,7 @@ func resetUI() {
 
 	startLabel = "Start"
 	mainStatus = "Ready"
-	mainStatusColor = WHITE
+	mainStatusColor = NEUTRAL
 	popupStatus = ""
 	requiredFreeSpace = 0
 
@@ -2896,12 +2913,74 @@ func unpackArchive(zipPath string) error {
 	return nil
 }
 
+// setLightTheme overrides giu's built-in dark theme with a light one.
+// giu's NewMasterWindow() hardcodes a dark color scheme directly onto the
+// current imgui style, so we reapply every color it sets with light-appropriate
+// values immediately afterward.
+func setLightTheme() {
+	style := imgui.CurrentStyle()
+
+	style.SetColor(imgui.StyleColorText, imgui.Vec4{X: 0.09, Y: 0.09, Z: 0.11, W: 1.00})
+	style.SetColor(imgui.StyleColorTextDisabled, imgui.Vec4{X: 0.55, Y: 0.55, Z: 0.58, W: 1.00})
+	style.SetColor(imgui.StyleColorWindowBg, imgui.Vec4{X: 0.98, Y: 0.98, Z: 0.99, W: 1.00})
+	style.SetColor(imgui.StyleColorChildBg, imgui.Vec4{X: 0.95, Y: 0.95, Z: 0.97, W: 1.00})
+	style.SetColor(imgui.StyleColorPopupBg, imgui.Vec4{X: 1.00, Y: 1.00, Z: 1.00, W: 0.98})
+	style.SetColor(imgui.StyleColorBorder, imgui.Vec4{X: 0.80, Y: 0.80, Z: 0.83, W: 1.00})
+	style.SetColor(imgui.StyleColorBorderShadow, imgui.Vec4{X: 0.00, Y: 0.00, Z: 0.00, W: 0.00})
+	style.SetColor(imgui.StyleColorFrameBg, imgui.Vec4{X: 0.93, Y: 0.93, Z: 0.95, W: 1.00})
+	style.SetColor(imgui.StyleColorFrameBgHovered, imgui.Vec4{X: 0.87, Y: 0.91, Z: 0.98, W: 1.00})
+	style.SetColor(imgui.StyleColorFrameBgActive, imgui.Vec4{X: 0.80, Y: 0.87, Z: 0.98, W: 1.00})
+	style.SetColor(imgui.StyleColorTitleBg, imgui.Vec4{X: 0.90, Y: 0.90, Z: 0.93, W: 0.65})
+	style.SetColor(imgui.StyleColorTitleBgActive, imgui.Vec4{X: 0.86, Y: 0.86, Z: 0.90, W: 1.00})
+	style.SetColor(imgui.StyleColorTitleBgCollapsed, imgui.Vec4{X: 0.95, Y: 0.95, Z: 0.95, W: 0.51})
+	style.SetColor(imgui.StyleColorMenuBarBg, imgui.Vec4{X: 0.94, Y: 0.94, Z: 0.96, W: 1.00})
+	style.SetColor(imgui.StyleColorScrollbarBg, imgui.Vec4{X: 0.96, Y: 0.96, Z: 0.96, W: 0.53})
+	style.SetColor(imgui.StyleColorScrollbarGrab, imgui.Vec4{X: 0.80, Y: 0.80, Z: 0.83, W: 1.00})
+	style.SetColor(imgui.StyleColorScrollbarGrabHovered, imgui.Vec4{X: 0.70, Y: 0.70, Z: 0.75, W: 1.00})
+	style.SetColor(imgui.StyleColorScrollbarGrabActive, imgui.Vec4{X: 0.55, Y: 0.63, Z: 0.85, W: 1.00})
+	style.SetColor(imgui.StyleColorCheckMark, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 1.00})
+	style.SetColor(imgui.StyleColorSliderGrab, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 1.00})
+	style.SetColor(imgui.StyleColorSliderGrabActive, imgui.Vec4{X: 0.10, Y: 0.38, Z: 0.85, W: 1.00})
+	style.SetColor(imgui.StyleColorButton, imgui.Vec4{X: 0.90, Y: 0.92, Z: 0.96, W: 1.00})
+	style.SetColor(imgui.StyleColorButtonHovered, imgui.Vec4{X: 0.82, Y: 0.88, Z: 0.98, W: 1.00})
+	style.SetColor(imgui.StyleColorButtonActive, imgui.Vec4{X: 0.72, Y: 0.82, Z: 0.97, W: 1.00})
+	style.SetColor(imgui.StyleColorHeader, imgui.Vec4{X: 0.90, Y: 0.92, Z: 0.96, W: 0.55})
+	style.SetColor(imgui.StyleColorHeaderHovered, imgui.Vec4{X: 0.82, Y: 0.88, Z: 0.98, W: 0.80})
+	style.SetColor(imgui.StyleColorHeaderActive, imgui.Vec4{X: 0.72, Y: 0.82, Z: 0.97, W: 1.00})
+	style.SetColor(imgui.StyleColorSeparator, imgui.Vec4{X: 0.80, Y: 0.80, Z: 0.83, W: 1.00})
+	style.SetColor(imgui.StyleColorSeparatorHovered, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 0.78})
+	style.SetColor(imgui.StyleColorSeparatorActive, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 1.00})
+	style.SetColor(imgui.StyleColorResizeGrip, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 0.25})
+	style.SetColor(imgui.StyleColorResizeGripHovered, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 0.67})
+	style.SetColor(imgui.StyleColorResizeGripActive, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 0.95})
+	style.SetColor(imgui.StyleColorTab, imgui.Vec4{X: 0.93, Y: 0.93, Z: 0.95, W: 1.00})
+	style.SetColor(imgui.StyleColorTabHovered, imgui.Vec4{X: 0.82, Y: 0.88, Z: 0.98, W: 0.80})
+	style.SetColor(imgui.StyleColorTabActive, imgui.Vec4{X: 0.90, Y: 0.92, Z: 0.96, W: 1.00})
+	style.SetColor(imgui.StyleColorTabUnfocused, imgui.Vec4{X: 0.95, Y: 0.95, Z: 0.96, W: 1.00})
+	style.SetColor(imgui.StyleColorTabUnfocusedActive, imgui.Vec4{X: 0.93, Y: 0.93, Z: 0.95, W: 1.00})
+	style.SetColor(imgui.StyleColorPlotLines, imgui.Vec4{X: 0.45, Y: 0.45, Z: 0.45, W: 1.00})
+	style.SetColor(imgui.StyleColorPlotLinesHovered, imgui.Vec4{X: 1.00, Y: 0.43, Z: 0.35, W: 1.00})
+	style.SetColor(imgui.StyleColorPlotHistogram, imgui.Vec4{X: 0.80, Y: 0.60, Z: 0.00, W: 1.00})
+	style.SetColor(imgui.StyleColorPlotHistogramHovered, imgui.Vec4{X: 0.90, Y: 0.50, Z: 0.00, W: 1.00})
+	style.SetColor(imgui.StyleColorTextSelectedBg, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 0.35})
+	style.SetColor(imgui.StyleColorDragDropTarget, imgui.Vec4{X: 1.00, Y: 0.70, Z: 0.00, W: 0.90})
+	style.SetColor(imgui.StyleColorNavHighlight, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 1.00})
+	style.SetColor(imgui.StyleColorNavWindowingHighlight, imgui.Vec4{X: 0.00, Y: 0.00, Z: 0.00, W: 0.70})
+	style.SetColor(imgui.StyleColorTableHeaderBg, imgui.Vec4{X: 0.90, Y: 0.92, Z: 0.96, W: 1.00})
+	style.SetColor(imgui.StyleColorTableBorderStrong, imgui.Vec4{X: 0.75, Y: 0.75, Z: 0.78, W: 1.00})
+	style.SetColor(imgui.StyleColorTableBorderLight, imgui.Vec4{X: 0.85, Y: 0.85, Z: 0.88, W: 0.70})
+}
+
 func main() {
 	if rsErr1 != nil || rsErr2 != nil || rsErr3 != nil || rsErr4 != nil || rsErr5 != nil || rsErr6 != nil || rsErr7 != nil {
 		panic(errors.New("rs failed to init"))
 	}
 	// Create the main window
-	window = giu.NewMasterWindow("Picocrypt "+version[1:], 318, 507, giu.MasterWindowFlagsNotResizable)
+	window = giu.NewMasterWindow("ZeeCrypt "+version[1:], 318, 507, giu.MasterWindowFlagsNotResizable)
+
+	// Switch from giu's default dark theme to a light theme
+	setLightTheme()
+	window.SetBgColor(color.RGBA{0xfa, 0xfa, 0xfb, 0xff})
 
 	// Start the dialog module
 	dialog.Init()
