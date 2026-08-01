@@ -2,7 +2,7 @@ package main
 
 /*
 
-ZeeCrypt v1.49 (fork of Picocrypt by Evan Su)
+ZeeCrypt v1.50 (fork of Picocrypt by Evan Su)
 Copyright (c) Evan Su
 Released under GPL-3.0-only
 https://github.com/TheZeekA/ZeeCrypt
@@ -61,7 +61,7 @@ var TRANSPARENT = color.RGBA{0x00, 0x00, 0x00, 0x00}
 
 // Generic variables
 var window *giu.MasterWindow
-var version = "v1.49"
+var version = "v1.50"
 var dpi float32
 var mode string
 var working bool
@@ -642,7 +642,7 @@ func draw() {
 				}()),
 				giu.Custom(func() {
 					if !commentsDisabled {
-						giu.Tooltip("Note: comments are not encrypted!").Build()
+						giu.Tooltip("Note: comments are not encrypted or tamper-protected!").Build()
 					}
 				}),
 			),
@@ -999,31 +999,26 @@ func onDrop(names []string) {
 						return
 					}
 					tmp, err = rsDecode(rs5, tmp)
-					if err == nil {
-						commentsLength, err := strconv.Atoi(string(tmp))
-						if err != nil {
-							comments = "Comment length is corrupted"
+					if valid, _ := regexp.Match(`^\d{5}$`, tmp); err == nil && valid {
+						commentsLength, _ := strconv.Atoi(string(tmp))
+						tmp = make([]byte, commentsLength*3)
+						if n, err := fin.Read(tmp); err != nil || n != commentsLength*3 {
+							fin.Close()
+							mainStatus = "Failed to read comments from file"
+							mainStatusColor = RED
 							giu.Update()
-						} else {
-							tmp = make([]byte, commentsLength*3)
-							if n, err := fin.Read(tmp); err != nil || n != commentsLength*3 {
-								fin.Close()
-								mainStatus = "Failed to read comments from file"
-								mainStatusColor = RED
-								giu.Update()
-								return
-							}
-							comments = ""
-							for i := 0; i < commentsLength*3; i += 3 {
-								t, err := rsDecode(rs1, tmp[i:i+3])
-								if err != nil {
-									comments = "Comments are corrupted"
-									break
-								}
-								comments += string(t)
-							}
-							giu.Update()
+							return
 						}
+						comments = ""
+						for i := 0; i < commentsLength*3; i += 3 {
+							t, err := rsDecode(rs1, tmp[i:i+3])
+							if err != nil {
+								comments = "Comments are corrupted"
+								break
+							}
+							comments += string(t)
+						}
+						giu.Update()
 					} else {
 						comments = "Comments are corrupted"
 						giu.Update()
@@ -1186,8 +1181,9 @@ func work() {
 	var hkdfSalt []byte                // HKDF-SHA3 salt, 32 bytes
 	var serpentIV []byte               // Serpent IV, 16 bytes
 	var nonce []byte                   // 24-byte XChaCha20 nonce
-	var keyHash []byte                 // SHA3-512 hash of encryption key
-	var keyHashRef []byte              // Same as 'keyHash', but used for comparison
+	var flags []byte                   // 5-byte flags field (paranoid, keyfile, ordered, reedsolo, padded)
+	var headerMAC []byte               // HMAC-SHA3-512 of the header, authenticates it and verifies the password
+	var headerMACRef []byte            // Same as 'headerMAC', but used for comparison
 	var keyfileKey []byte              // The SHA3-256 hashes of keyfiles
 	var keyfileHash = make([]byte, 32) // The SHA3-256 of 'keyfileKey'
 	var keyfileHashRef []byte          // Same as 'keyfileHash', but used for comparison
@@ -1602,7 +1598,15 @@ func work() {
 		_, errs[0] = fout.Write(rsEncode(rs5, []byte(version)))
 
 		if len(comments) > 99999 {
-			panic(errors.New("comments exceed maximum length"))
+			fin.Close()
+			fout.Close()
+			if len(allFiles) > 1 || len(onlyFolders) > 0 || compress {
+				os.Remove(inputFile)
+			}
+			os.Remove(fout.Name())
+			mainStatus = "Comment exceeds the maximum length of 99,999 characters"
+			mainStatusColor = RED
+			return
 		}
 
 		// Encode and write the comment length to file
@@ -1618,7 +1622,7 @@ func work() {
 		}
 
 		// Configure flags and write to file
-		flags := make([]byte, 5)
+		flags = make([]byte, 5)
 		if paranoid { // Paranoid mode selected
 			flags[0] = 1
 		}
@@ -1669,7 +1673,7 @@ func work() {
 		_, errs[7] = fout.Write(rsEncode(rs24, nonce))
 
 		// Write placeholders for future use
-		_, errs[8] = fout.Write(make([]byte, 192))  // Hash of encryption key
+		_, errs[8] = fout.Write(make([]byte, 192))  // HMAC-SHA3-512 of the header
 		_, errs[9] = fout.Write(make([]byte, 96))   // Hash of keyfile key
 		_, errs[10] = fout.Write(make([]byte, 192)) // BLAKE2b/HMAC-SHA3 tag
 
@@ -1707,7 +1711,7 @@ func work() {
 		fin.Read(make([]byte, commentsLength*3))
 		total -= int64(commentsLength) * 3
 
-		flags := make([]byte, 15)
+		flags = make([]byte, 15)
 		fin.Read(flags)
 		flags, errs[2] = rsDecode(rs5, flags)
 		paranoid = flags[0] == 1
@@ -1734,9 +1738,9 @@ func work() {
 		fin.Read(nonce)
 		nonce, errs[6] = rsDecode(rs24, nonce)
 
-		keyHashRef = make([]byte, 192)
-		fin.Read(keyHashRef)
-		keyHashRef, errs[7] = rsDecode(rs64, keyHashRef)
+		headerMACRef = make([]byte, 192)
+		fin.Read(headerMACRef)
+		headerMACRef, errs[7] = rsDecode(rs64, headerMACRef)
 
 		keyfileHashRef = make([]byte, 96)
 		fin.Read(keyfileHashRef)
@@ -1893,16 +1897,29 @@ func work() {
 	popupStatus = "Calculating values..."
 	giu.Update()
 
-	// Hash the encryption key for comparison when decrypting
-	tmp := sha3.New512()
-	if _, err := tmp.Write(key); err != nil {
-		panic(err)
+	// Authenticate the header's decryption parameters (flags, salts, IVs) with
+	// an HMAC keyed by a subkey independent from the data-encryption and
+	// data-MAC keys. A successful comparison proves both a correct password
+	// and an untampered header, replacing the old bare hash of the key.
+	// The comment field is intentionally excluded (see the UI tooltip warning
+	// that comments aren't tamper-protected): it isn't re-derived from disk
+	// during decryption, so including it here could cause spurious failures.
+	headerSubkey := make([]byte, 32)
+	headerHKDF := hkdf.New(sha3.New256, key, hkdfSalt, []byte("zeecrypt-header-mac"))
+	if n, err := headerHKDF.Read(headerSubkey); err != nil || n != 32 {
+		panic(errors.New("fatal hkdf.Read error"))
 	}
-	keyHash = tmp.Sum(nil)
+	headerMACFunc := hmac.New(sha3.New512, headerSubkey)
+	for _, part := range [][]byte{flags, salt, hkdfSalt, serpentIV, nonce} {
+		if _, err := headerMACFunc.Write(part); err != nil {
+			panic(err)
+		}
+	}
+	headerMAC = headerMACFunc.Sum(nil)
 
 	// Validate the password and/or keyfiles
 	if mode == "decrypt" {
-		keyCorrect := subtle.ConstantTimeCompare(keyHash, keyHashRef) == 1
+		keyCorrect := subtle.ConstantTimeCompare(headerMAC, headerMACRef) == 1
 		keyfileCorrect := subtle.ConstantTimeCompare(keyfileHash, keyfileHashRef) == 1
 		incorrect := !keyCorrect
 		if keyfile || len(keyfiles) > 0 {
@@ -1915,7 +1932,7 @@ func work() {
 				kept = true
 			} else {
 				if !keyCorrect {
-					mainStatus = "The provided password is incorrect"
+					mainStatus = "The provided password is incorrect, or the file has been tampered with"
 				} else {
 					if keyfileOrdered {
 						mainStatus = "Incorrect keyfiles or ordering"
@@ -2215,7 +2232,7 @@ func work() {
 		if _, err := fout.Seek(int64(309+len(comments)*3), 0); err != nil {
 			panic(err)
 		}
-		if _, err := fout.Write(rsEncode(rs64, keyHash)); err != nil {
+		if _, err := fout.Write(rsEncode(rs64, headerMAC)); err != nil {
 			panic(err)
 		}
 		if _, err := fout.Write(rsEncode(rs32, keyfileHash)); err != nil {

@@ -5,7 +5,7 @@ If you're wondering about how ZeeCrypt handles cryptography, you've come to the 
 ZeeCrypt uses the following cryptographic primitives:
 - XChaCha20 (cascaded with Serpent in counter mode for paranoid mode)
 - Keyed-BLAKE2b for normal mode, HMAC-SHA3 for paranoid mode (256-bit key, 512-bit digest)
-- HKDF-SHA3 for deriving a subkey for the MAC above, as well as a key for Serpent
+- HKDF-SHA3 for deriving a subkey for the MAC above, a key for Serpent, and a subkey for the header HMAC below
 - Argon2id:
     - Normal mode: 4 passes, 1 GiB memory, 4 threads
     - Paranoid mode: 8 passes, 1 GiB memory, 8 threads
@@ -29,10 +29,12 @@ A ZeeCrypt volume's header is encoded with Reed-Solomon by default since it is, 
 | 93+3C  | 96           | 32           | Salt for HKDF-SHA3
 | 189+3C | 48           | 16           | IV for Serpent
 | 237+3C | 72           | 24           | Nonce for XChaCha20
-| 309+3C | 192          | 64           | SHA3-512 of encryption key
+| 309+3C | 192          | 64           | HMAC-SHA3-512 of the header (flags, salts, IVs), keyed by a subkey derived from the password
 | 501+3C | 96           | 32           | SHA3-256 of keyfile key
 | 597+3C | 192          | 64           | Authentication tag (BLAKE2b/HMAC-SHA3)
 | 789+3C |              |              | Encrypted contents of input data
+
+As of v1.50, this header HMAC replaces a bare SHA3-512 hash of the encryption key. Verifying it before any data is processed both detects an incorrect password and detects tampering with the header's decryption parameters (flags, salts, IVs) — closing findings PCC-001 and PCC-006 from the original Picocrypt security audit (Radically Open Security, September 2024). The comment field is deliberately excluded from this HMAC (see the in-app tooltip: comments are neither encrypted nor tamper-protected). This is a breaking format change — ZeeCrypt v1.50 cannot open volumes created by Picocrypt or by ZeeCrypt versions prior to 1.50.
 
 # Keyfile Design
 ZeeCrypt allows the use of keyfiles as an additional form of authentication. ZeeCrypt's unique "Require correct order" feature enforces the user to drop keyfiles into the window in the same order as they did when encrypting in order to decrypt the volume successfully. Here's how it works:
@@ -53,6 +55,11 @@ Plausible deniability in ZeeCrypt is achieved by simply re-encrypting the volume
 ```
 [argon2 salt][xchacha20 nonce][encrypted stream of bytes]
 ```
+
+# Known Limitation: Decrypt-Then-Verify
+When decrypting, ZeeCrypt computes the data's authentication tag incrementally as it decrypts each block, and only compares it against the stored tag after the entire file has been processed (this is PCC-004 from the Picocrypt security audit). A true fix requires reading the input twice — once to verify the tag before decrypting anything — which touches the Reed-Solomon repair path, the deniability temp-zip decryption wrapper, and split/recombine handling all at once, and was judged too risky to rewrite without a way to test it end-to-end.
+
+In practice, the impact is limited: decrypted output is always written to a `.incomplete` temp file and is only renamed to the final output path after the tag check succeeds, so tampered/attacker-controlled plaintext is never exposed to you as a finished, trusted file. The residual risk is a low-severity, side-channel-class theoretical concern (per the original audit) from decrypting attacker-controlled ciphertext into memory before the tag comparison completes. This remains open for a future release.
 
 # Just Read the Code
 ZeeCrypt is a very simple tool and only has one source file. The source Go file is just 2K lines and a lot of the code is dealing with the UI. The core cryptography code is only about 1K lines of code, and even so, a lot of that code deals with the UI and other features of ZeeCrypt. So if you need more information about how ZeeCrypt works, just read the code. It's not long, and it is well commented and will explain what happens under the hood better than a document can.
