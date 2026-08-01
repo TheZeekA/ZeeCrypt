@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ZeeCrypt MSI installer, built with WiX Toolset v5 (https://wixtoolset.org/).
+
+  Build (from repo root, after ZeeCrypt.exe and images/lock.ico exist):
+    dotnet tool install --global wix
+    wix build dist/windows/installer.wxs -d ExePath=src/ZeeCrypt.exe -d IconPath=images/lock.ico -d ProductVersion=1.50.0.0 -o ZeeCrypt-Installer.msi
+
+  Installs per-user (no administrator privileges required), matching the
+  portable download's "no admin needed" promise in the README.
+
+  IMPORTANT: UpgradeCode must never change across releases - it's what lets
+  Windows Installer detect and upgrade a previous ZeeCrypt install instead of
+  treating a new version as an unrelated product.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="ZeeCrypt"
+           Manufacturer="Teddy Jones"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="fcc59afd-06ce-40f0-8de0-46e02636afff"
+           Language="1033"
+           Compressed="yes"
+           Scope="perUser">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of ZeeCrypt is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon.ico" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/TheZeekA/ZeeCrypt" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/TheZeekA/ZeeCrypt" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="APPFOLDER" Name="ZeeCrypt" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="ZeeCrypt" />
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="ZeeCrypt" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="ProductComponents" Directory="APPFOLDER">
+      <!-- Main executable + Start Menu shortcut -->
+      <Component Id="MainExecutable" Guid="*">
+        <File Id="ZeeCryptEXE" Source="$(var.ExePath)" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut"
+                     Directory="ApplicationProgramsFolder"
+                     Name="ZeeCrypt"
+                     WorkingDirectory="APPFOLDER"
+                     Icon="AppIcon.ico" />
+        </File>
+      </Component>
+
+      <!-- .pcv file association -->
+      <Component Id="FileAssociation" Guid="*">
+        <RegistryValue Root="HKCU" Key="Software\Classes\.pcv" Value="ZeeCrypt.pcv" Type="string" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\ZeeCrypt.pcv" Value="ZeeCrypt Encrypted Volume" Type="string" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\ZeeCrypt.pcv\DefaultIcon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\ZeeCrypt.pcv\shell\open\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; &quot;%1&quot;" Type="string" />
+      </Component>
+
+      <!-- Clean up the Start Menu folder on uninstall -->
+      <Component Id="RemoveStartMenuShortcut" Directory="ApplicationProgramsFolder" Guid="*">
+        <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\ZeeCrypt" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>
