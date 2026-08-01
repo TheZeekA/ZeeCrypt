@@ -53,10 +53,10 @@ const MiB = 1 << 20
 const GiB = 1 << 30
 const TiB = 1 << 40
 
-var WHITE = color.RGBA{0xff, 0xff, 0xff, 0xff}
-var RED = color.RGBA{0xff, 0x00, 0x00, 0xff}
-var GREEN = color.RGBA{0x00, 0xff, 0x00, 0xff}
-var YELLOW = color.RGBA{0xff, 0xff, 0x00, 0xff}
+var NEUTRAL = color.RGBA{0x18, 0x18, 0x1c, 0xff}
+var RED = color.RGBA{0xd3, 0x2f, 0x2f, 0xff}
+var GREEN = color.RGBA{0x2e, 0x7d, 0x32, 0xff}
+var YELLOW = color.RGBA{0xb2, 0x8a, 0x00, 0xff}
 var TRANSPARENT = color.RGBA{0x00, 0x00, 0x00, 0x00}
 
 // Generic variables
@@ -129,7 +129,7 @@ var kept bool
 // Status variables
 var startLabel = "Start"
 var mainStatus = "Ready"
-var mainStatusColor = WHITE
+var mainStatusColor = NEUTRAL
 var popupStatus string
 var requiredFreeSpace int64
 
@@ -614,7 +614,7 @@ func draw() {
 								panic(err)
 							} else {
 								mainStatus = "Ready"
-								mainStatusColor = WHITE
+								mainStatusColor = NEUTRAL
 								giu.Update()
 								return
 							}
@@ -787,7 +787,7 @@ func draw() {
 						}
 						outputFile = file
 						mainStatus = "Ready"
-						mainStatusColor = WHITE
+						mainStatusColor = NEUTRAL
 						giu.Update()
 					}).Build()
 					giu.Tooltip("Save the output with a custom name and path").Build()
@@ -827,11 +827,11 @@ func draw() {
 					if autoUnzip {
 						multiplier++
 					}
-					giu.Style().SetColor(giu.StyleColorText, WHITE).To(
+					giu.Style().SetColor(giu.StyleColorText, NEUTRAL).To(
 						giu.Label("Ready (ensure >" + sizeify(requiredFreeSpace*int64(multiplier)) + " of disk space is free)"),
 					).Build()
 				} else {
-					giu.Style().SetColor(giu.StyleColorText, WHITE).To(
+					giu.Style().SetColor(giu.StyleColorText, NEUTRAL).To(
 						giu.Label("Ready"),
 					).Build()
 				}
@@ -1176,7 +1176,7 @@ func onDrop(names []string) {
 func work() {
 	popupStatus = "Starting..."
 	mainStatus = "Working..."
-	mainStatusColor = WHITE
+	mainStatusColor = NEUTRAL
 	working = true
 	padded := false
 	giu.Update()
@@ -2628,7 +2628,7 @@ func cancel(fin *os.File, fout *os.File) {
 	fin.Close()
 	fout.Close()
 	mainStatus = "Operation cancelled by user"
-	mainStatusColor = WHITE
+	mainStatusColor = NEUTRAL
 }
 
 // Reset the UI to a clean state with nothing selected or checked
@@ -2682,7 +2682,7 @@ func resetUI() {
 
 	startLabel = "Start"
 	mainStatus = "Ready"
-	mainStatusColor = WHITE
+	mainStatusColor = NEUTRAL
 	popupStatus = ""
 	requiredFreeSpace = 0
 
@@ -2896,12 +2896,74 @@ func unpackArchive(zipPath string) error {
 	return nil
 }
 
+// setLightTheme overrides giu's built-in dark theme with a light one.
+// giu's NewMasterWindow() hardcodes a dark color scheme directly onto the
+// current imgui style, so we reapply every color it sets with light-appropriate
+// values immediately afterward.
+func setLightTheme() {
+	style := imgui.CurrentStyle()
+
+	style.SetColor(imgui.StyleColorText, imgui.Vec4{X: 0.09, Y: 0.09, Z: 0.11, W: 1.00})
+	style.SetColor(imgui.StyleColorTextDisabled, imgui.Vec4{X: 0.55, Y: 0.55, Z: 0.58, W: 1.00})
+	style.SetColor(imgui.StyleColorWindowBg, imgui.Vec4{X: 0.98, Y: 0.98, Z: 0.99, W: 1.00})
+	style.SetColor(imgui.StyleColorChildBg, imgui.Vec4{X: 0.95, Y: 0.95, Z: 0.97, W: 1.00})
+	style.SetColor(imgui.StyleColorPopupBg, imgui.Vec4{X: 1.00, Y: 1.00, Z: 1.00, W: 0.98})
+	style.SetColor(imgui.StyleColorBorder, imgui.Vec4{X: 0.80, Y: 0.80, Z: 0.83, W: 1.00})
+	style.SetColor(imgui.StyleColorBorderShadow, imgui.Vec4{X: 0.00, Y: 0.00, Z: 0.00, W: 0.00})
+	style.SetColor(imgui.StyleColorFrameBg, imgui.Vec4{X: 0.93, Y: 0.93, Z: 0.95, W: 1.00})
+	style.SetColor(imgui.StyleColorFrameBgHovered, imgui.Vec4{X: 0.87, Y: 0.91, Z: 0.98, W: 1.00})
+	style.SetColor(imgui.StyleColorFrameBgActive, imgui.Vec4{X: 0.80, Y: 0.87, Z: 0.98, W: 1.00})
+	style.SetColor(imgui.StyleColorTitleBg, imgui.Vec4{X: 0.90, Y: 0.90, Z: 0.93, W: 0.65})
+	style.SetColor(imgui.StyleColorTitleBgActive, imgui.Vec4{X: 0.86, Y: 0.86, Z: 0.90, W: 1.00})
+	style.SetColor(imgui.StyleColorTitleBgCollapsed, imgui.Vec4{X: 0.95, Y: 0.95, Z: 0.95, W: 0.51})
+	style.SetColor(imgui.StyleColorMenuBarBg, imgui.Vec4{X: 0.94, Y: 0.94, Z: 0.96, W: 1.00})
+	style.SetColor(imgui.StyleColorScrollbarBg, imgui.Vec4{X: 0.96, Y: 0.96, Z: 0.96, W: 0.53})
+	style.SetColor(imgui.StyleColorScrollbarGrab, imgui.Vec4{X: 0.80, Y: 0.80, Z: 0.83, W: 1.00})
+	style.SetColor(imgui.StyleColorScrollbarGrabHovered, imgui.Vec4{X: 0.70, Y: 0.70, Z: 0.75, W: 1.00})
+	style.SetColor(imgui.StyleColorScrollbarGrabActive, imgui.Vec4{X: 0.55, Y: 0.63, Z: 0.85, W: 1.00})
+	style.SetColor(imgui.StyleColorCheckMark, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 1.00})
+	style.SetColor(imgui.StyleColorSliderGrab, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 1.00})
+	style.SetColor(imgui.StyleColorSliderGrabActive, imgui.Vec4{X: 0.10, Y: 0.38, Z: 0.85, W: 1.00})
+	style.SetColor(imgui.StyleColorButton, imgui.Vec4{X: 0.90, Y: 0.92, Z: 0.96, W: 1.00})
+	style.SetColor(imgui.StyleColorButtonHovered, imgui.Vec4{X: 0.82, Y: 0.88, Z: 0.98, W: 1.00})
+	style.SetColor(imgui.StyleColorButtonActive, imgui.Vec4{X: 0.72, Y: 0.82, Z: 0.97, W: 1.00})
+	style.SetColor(imgui.StyleColorHeader, imgui.Vec4{X: 0.90, Y: 0.92, Z: 0.96, W: 0.55})
+	style.SetColor(imgui.StyleColorHeaderHovered, imgui.Vec4{X: 0.82, Y: 0.88, Z: 0.98, W: 0.80})
+	style.SetColor(imgui.StyleColorHeaderActive, imgui.Vec4{X: 0.72, Y: 0.82, Z: 0.97, W: 1.00})
+	style.SetColor(imgui.StyleColorSeparator, imgui.Vec4{X: 0.80, Y: 0.80, Z: 0.83, W: 1.00})
+	style.SetColor(imgui.StyleColorSeparatorHovered, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 0.78})
+	style.SetColor(imgui.StyleColorSeparatorActive, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 1.00})
+	style.SetColor(imgui.StyleColorResizeGrip, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 0.25})
+	style.SetColor(imgui.StyleColorResizeGripHovered, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 0.67})
+	style.SetColor(imgui.StyleColorResizeGripActive, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 0.95})
+	style.SetColor(imgui.StyleColorTab, imgui.Vec4{X: 0.93, Y: 0.93, Z: 0.95, W: 1.00})
+	style.SetColor(imgui.StyleColorTabHovered, imgui.Vec4{X: 0.82, Y: 0.88, Z: 0.98, W: 0.80})
+	style.SetColor(imgui.StyleColorTabActive, imgui.Vec4{X: 0.90, Y: 0.92, Z: 0.96, W: 1.00})
+	style.SetColor(imgui.StyleColorTabUnfocused, imgui.Vec4{X: 0.95, Y: 0.95, Z: 0.96, W: 1.00})
+	style.SetColor(imgui.StyleColorTabUnfocusedActive, imgui.Vec4{X: 0.93, Y: 0.93, Z: 0.95, W: 1.00})
+	style.SetColor(imgui.StyleColorPlotLines, imgui.Vec4{X: 0.45, Y: 0.45, Z: 0.45, W: 1.00})
+	style.SetColor(imgui.StyleColorPlotLinesHovered, imgui.Vec4{X: 1.00, Y: 0.43, Z: 0.35, W: 1.00})
+	style.SetColor(imgui.StyleColorPlotHistogram, imgui.Vec4{X: 0.80, Y: 0.60, Z: 0.00, W: 1.00})
+	style.SetColor(imgui.StyleColorPlotHistogramHovered, imgui.Vec4{X: 0.90, Y: 0.50, Z: 0.00, W: 1.00})
+	style.SetColor(imgui.StyleColorTextSelectedBg, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 0.35})
+	style.SetColor(imgui.StyleColorDragDropTarget, imgui.Vec4{X: 1.00, Y: 0.70, Z: 0.00, W: 0.90})
+	style.SetColor(imgui.StyleColorNavHighlight, imgui.Vec4{X: 0.16, Y: 0.47, Z: 0.93, W: 1.00})
+	style.SetColor(imgui.StyleColorNavWindowingHighlight, imgui.Vec4{X: 0.00, Y: 0.00, Z: 0.00, W: 0.70})
+	style.SetColor(imgui.StyleColorTableHeaderBg, imgui.Vec4{X: 0.90, Y: 0.92, Z: 0.96, W: 1.00})
+	style.SetColor(imgui.StyleColorTableBorderStrong, imgui.Vec4{X: 0.75, Y: 0.75, Z: 0.78, W: 1.00})
+	style.SetColor(imgui.StyleColorTableBorderLight, imgui.Vec4{X: 0.85, Y: 0.85, Z: 0.88, W: 0.70})
+}
+
 func main() {
 	if rsErr1 != nil || rsErr2 != nil || rsErr3 != nil || rsErr4 != nil || rsErr5 != nil || rsErr6 != nil || rsErr7 != nil {
 		panic(errors.New("rs failed to init"))
 	}
 	// Create the main window
 	window = giu.NewMasterWindow("ZeeCrypt "+version[1:], 318, 507, giu.MasterWindowFlagsNotResizable)
+
+	// Switch from giu's default dark theme to a light theme
+	setLightTheme()
+	window.SetBgColor(color.RGBA{0xfa, 0xfa, 0xfb, 0xff})
 
 	// Start the dialog module
 	dialog.Init()

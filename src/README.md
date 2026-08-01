@@ -11,10 +11,19 @@ If you don't have Go installed, download it from <a href="https://go.dev/dl/">he
 Download the source files as a zip from the homepage or `git clone` this repository. Next, navigate to the `src/` directory, where you will find the source file (`ZeeCrypt.go`). You will need this file, along with `go.mod` and `go.sum`, to compile ZeeCrypt.
 
 # 4. Build From Source
-Finally, build ZeeCrypt from source:
-- Windows: <code>go build -ldflags="-s -w -H=windowsgui -extldflags=-static" ZeeCrypt.go</code>
+Finally, build ZeeCrypt from source (run this from inside the `src/` directory):
+- Windows: <code>go build -ldflags="-s -w -H=windowsgui -extldflags=-static" .</code>
 
-Note: Make sure to set `CGO_ENABLED=1` if it isn't already.
+Note: Make sure to set `CGO_ENABLED=1` if it isn't already. Also make sure **not** to name `ZeeCrypt.go` explicitly on the command line (e.g. `go build ZeeCrypt.go`) — Go only auto-links the `.syso` icon resource files when building the package as a whole (`.` or no argument), not when you list specific `.go` files.
 
 # 5. Done!
-You should now see a compiled executable (`ZeeCrypt.exe`) in your directory. You can run it by double-clicking or executing it in your terminal. That wasn't too hard, right? Enjoy!
+You should now see a compiled executable (`ZeeCrypt.exe`) in your directory, with the app icon already embedded. You can run it by double-clicking or executing it in your terminal. That wasn't too hard, right? Enjoy!
+
+# Updating the app icon
+The icon is embedded automatically via `rsrc_windows_386.syso`/`rsrc_windows_amd64.syso` in this directory, which `go build` links in without any extra flags. If you change `images/lock.ico`, regenerate these files:
+```
+go install github.com/tc-hib/go-winres@latest
+cd src
+go-winres make
+```
+This reads `src/winres/winres.json` and rewrites the `.syso` files to match the new icon.
