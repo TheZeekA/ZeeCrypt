@@ -72,14 +72,19 @@ jobs:
 
     - name: Install WiX
       shell: pwsh
-      run: dotnet tool install --global wix --version 5.0.2
+      run: |
+        dotnet tool install --global wix --version 5.0.2
+        wix extension add WixToolset.UI.wixext/5.0.2
 
     - name: Build installer (MSI)
       shell: pwsh
       run: |
         wix build dist/windows/installer.wxs `
+          -arch x64 `
+          -ext WixToolset.UI.wixext `
           -d ExePath=src/ZeeCrypt.exe `
           -d IconPath=images/lock.ico `
+          -d LicenseRtfPath=dist/windows/License.rtf `
           -d ProductVersion="$($env:VERSION).0.0" `
           -o ZeeCrypt-Installer.msi
 

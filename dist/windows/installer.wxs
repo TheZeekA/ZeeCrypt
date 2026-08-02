@@ -8,7 +8,8 @@
   allowed inside an XML comment. Retype the flags with real hyphens
   before running this in a shell:
     dotnet tool install ‑‑global wix ‑‑version 5.0.2
-    wix build dist/windows/installer.wxs -d ExePath=src/ZeeCrypt.exe -d IconPath=images/lock.ico -d ProductVersion=1.51.0.0 -o ZeeCrypt-Installer.msi
+    wix extension add WixToolset.UI.wixext/5.0.2
+    wix build dist/windows/installer.wxs -arch x64 -ext WixToolset.UI.wixext -d ExePath=src/ZeeCrypt.exe -d IconPath=images/lock.ico -d LicenseRtfPath=dist/windows/License.rtf -d ProductVersion=1.51.0.0 -o ZeeCrypt-Installer.msi
 
   Pinned to WiX v5: v7 introduced a mandatory "Open Source Maintenance Fee"
   EULA that must be accepted before the tool will run at all. Don't bump
@@ -26,7 +27,7 @@
   Windows Installer detect and upgrade a previous ZeeCrypt install instead of
   treating a new version as an unrelated product.
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package Name="ZeeCrypt"
            Manufacturer="Teddy Jones"
            Version="$(var.ProductVersion)"
@@ -41,6 +42,17 @@
     <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
     <Property Id="ARPHELPLINK" Value="https://github.com/TheZeekA/ZeeCrypt" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/TheZeekA/ZeeCrypt" />
+
+    <!--
+      Standard WiX license+progress+"Setup was successful" dialog flow.
+      There's no simpler built-in dialog set that skips straight to just a
+      success screen - every stock WixUI sequence includes the license
+      agreement dialog first. Showing the GPL-3.0 text during install is
+      normal practice for GPL software anyway, so this uses it as-is rather
+      than authoring a fully custom dialog set just to avoid it.
+    -->
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtfPath)" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="APPFOLDER" Name="ZeeCrypt" />

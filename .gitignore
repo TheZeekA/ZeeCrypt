@@ -7,6 +7,9 @@
 *.dll
 *.so
 *.dylib
+*.msi
+*.wixpdb
+install.log
 
 # Test binary, built with `go test -c`
 *.test
