@@ -79,6 +79,31 @@
         <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
         <RegistryValue Root="HKCU" Key="Software\ZeeCrypt" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
+
+      <!--
+        Explorer right-click integration. A single "Open with ZeeCrypt" entry
+        for both files and folders: the app already auto-detects encrypt vs.
+        decrypt from what's opened (.pcv suffix means decrypt, everything
+        else means encrypt - see onDrop() in src/ZeeCrypt.go), so there's no
+        need for separate Encrypt/Decrypt verbs that would have to guess.
+        MultiSelectModel=Player makes Explorer launch one instance with every
+        selected path passed as a separate argument (main() already forwards
+        os.Args straight into onDrop(), the same path a real drag-and-drop
+        uses), instead of one instance per selected item.
+      -->
+      <Component Id="ContextMenuFiles" Guid="*">
+        <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\ZeeCrypt" Value="Open with ZeeCrypt" Type="string" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\ZeeCrypt" Name="Icon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\ZeeCrypt" Name="MultiSelectModel" Value="Player" Type="string" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\ZeeCrypt\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; %1" Type="string" />
+      </Component>
+
+      <Component Id="ContextMenuFolders" Guid="*">
+        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\ZeeCrypt" Value="Open with ZeeCrypt" Type="string" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\ZeeCrypt" Name="Icon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\ZeeCrypt" Name="MultiSelectModel" Value="Player" Type="string" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\ZeeCrypt\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; %1" Type="string" />
+      </Component>
     </ComponentGroup>
   </Fragment>
 </Wix>
