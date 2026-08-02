@@ -66,6 +66,8 @@ For more information on how ZeeCrypt handles cryptography, see <a href="Internal
 
 <strong>ZeeCrypt operates under the assumption that the host machine it is running on is safe and trusted. If that is not the case, no piece of software will be secure, and you will have much bigger problems to worry about. As such, ZeeCrypt is designed for the offline security of volumes and does not attempt to protect against side-channel analysis.</strong>
 
+ZeeCrypt makes no network requests on its own. The only exception is the update checker (bottom-right of the window), which only runs when you click it — it queries the GitHub Releases API and, if you choose to install an update, verifies its SHA-256 checksum before replacing the running executable. Nothing is ever downloaded or applied without you explicitly clicking to do so.
+
 # FAQ
 **Does the "Delete files" feature shred files?**
 

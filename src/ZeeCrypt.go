@@ -17,7 +17,10 @@ import (
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -27,7 +30,9 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -73,6 +78,19 @@ var showPassgen bool
 var showKeyfile bool
 var showOverwrite bool
 var showProgress bool
+var showUpdate bool
+
+// Update checking
+const updateRepo = "TheZeekA/ZeeCrypt"
+
+var updateChecking bool
+var updateApplying bool
+var updateAvailable bool
+var updateVersion string
+var updateNotes string
+var updateDownloadURL string
+var updateChecksum string
+var updateError string
 
 // Input and output files
 var inputFile string
@@ -446,6 +464,38 @@ func draw() {
 					giu.Label(popupStatus),
 				).Build()
 				giu.OpenPopup("Progress:##" + strconv.Itoa(modalId))
+				giu.Update()
+			}
+
+			if showUpdate {
+				giu.PopupModal("Update available:##"+strconv.Itoa(modalId)).Flags(6).Layout(
+					giu.Label("ZeeCrypt "+updateVersion+" is available (you have "+version+")"),
+					giu.Dummy(0, 4),
+					giu.InputTextMultiline(&updateNotes).Flags(giu.InputTextFlagsReadOnly).Size(280, 150),
+					giu.Dummy(0, 4),
+					giu.Custom(func() {
+						if updateError != "" {
+							giu.Style().SetColor(giu.StyleColorText, RED).To(
+								giu.Label(updateError),
+							).Build()
+						}
+					}),
+					giu.Style().SetDisabled(updateApplying).To(
+						giu.Row(
+							giu.Button("Later").Size(100, 0).OnClick(func() {
+								giu.CloseCurrentPopup()
+								showUpdate = false
+							}),
+							giu.Button(func() string {
+								if updateApplying {
+									return "Updating..."
+								}
+								return "Update Now"
+							}()).Size(160, 0).OnClick(applyUpdate),
+						),
+					),
+				).Build()
+				giu.OpenPopup("Update available:##" + strconv.Itoa(modalId))
 				giu.Update()
 			}
 		}),
@@ -837,6 +887,49 @@ func draw() {
 				}
 			}),
 		),
+
+		giu.Dummy(0, 2),
+		giu.Custom(func() {
+			label := version
+			labelColor := NEUTRAL
+			switch {
+			case updateApplying:
+				label = "Updating..."
+			case updateChecking:
+				label = "Checking for updates..."
+			case updateAvailable:
+				label = "Update available: " + updateVersion
+				labelColor = GREEN
+			case updateError != "":
+				label = updateError
+				labelColor = RED
+			}
+
+			// Right-align on its own line: measure the label, then move the
+			// cursor so it ends flush with the window's right edge. This
+			// mirrors giu's own Align(AlignRight) math, applied by hand
+			// because Align has a documented bug that skips Selectable.
+			w, _ := giu.CalcTextSize(label)
+			availW, _ := giu.GetAvailableRegion()
+			padW, _ := giu.GetWindowPadding()
+			pos := giu.GetCursorPos()
+			giu.SetCursorPos(image.Pt(int(availW+2*padW-w), pos.Y))
+
+			giu.Style().SetColor(giu.StyleColorText, labelColor).To(
+				giu.Selectable(label).OnClick(func() {
+					if updateChecking || updateApplying {
+						return
+					}
+					if updateAvailable {
+						showUpdate = true
+						modalId++
+						giu.Update()
+					} else {
+						checkForUpdates()
+					}
+				}),
+			).Build()
+		}),
 
 		giu.Custom(func() {
 			window.SetSize(int(318*dpi), giu.GetCursorPos().Y+1)
@@ -2971,10 +3064,247 @@ func setLightTheme() {
 	style.SetColor(imgui.StyleColorTableBorderLight, imgui.Vec4{X: 0.85, Y: 0.85, Z: 0.88, W: 0.70})
 }
 
+// isNewerVersion reports whether remote is a newer version than local.
+// Versions are dot-separated integers (an optional leading 'v' is ignored),
+// e.g. "v1.50" or "1.50". Missing trailing segments are treated as 0, so
+// "1.6" is considered newer than "1.5.9".
+func isNewerVersion(remote, local string) (bool, error) {
+	parse := func(v string) ([]int, error) {
+		v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+		parts := strings.Split(v, ".")
+		nums := make([]int, len(parts))
+		for i, p := range parts {
+			n, err := strconv.Atoi(p)
+			if err != nil {
+				return nil, err
+			}
+			nums[i] = n
+		}
+		return nums, nil
+	}
+
+	r, err := parse(remote)
+	if err != nil {
+		return false, err
+	}
+	l, err := parse(local)
+	if err != nil {
+		return false, err
+	}
+
+	length := len(r)
+	if len(l) > length {
+		length = len(l)
+	}
+	for i := 0; i < length; i++ {
+		var rv, lv int
+		if i < len(r) {
+			rv = r[i]
+		}
+		if i < len(l) {
+			lv = l[i]
+		}
+		if rv != lv {
+			return rv > lv, nil
+		}
+	}
+	return false, nil
+}
+
+// checksumRegex extracts the published SHA-256 for ZeeCrypt.exe from a
+// release's body text, matching the exact format build-windows.yml writes:
+// `sha256(ZeeCrypt.exe)  <hex>`
+var checksumRegex = regexp.MustCompile(`sha256\(ZeeCrypt\.exe\)\s+([A-Fa-f0-9]{64})`)
+
+// checkForUpdates queries the latest GitHub release and, if it's newer than
+// the running version, populates the update* variables and opens the update
+// modal. Runs in the background; never downloads or applies anything itself.
+func checkForUpdates() {
+	if updateChecking || updateApplying {
+		return
+	}
+	updateChecking = true
+	updateError = ""
+	giu.Update()
+
+	go func() {
+		defer func() {
+			updateChecking = false
+			giu.Update()
+		}()
+
+		client := &http.Client{Timeout: 15 * time.Second}
+		req, err := http.NewRequest("GET", "https://api.github.com/repos/"+updateRepo+"/releases/latest", nil)
+		if err != nil {
+			updateError = "Failed to check for updates"
+			return
+		}
+		req.Header.Set("Accept", "application/vnd.github+json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			updateError = "Failed to reach GitHub"
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			updateError = "Failed to check for updates"
+			return
+		}
+
+		var release struct {
+			TagName string `json:"tag_name"`
+			Body    string `json:"body"`
+			Assets  []struct {
+				Name               string `json:"name"`
+				BrowserDownloadURL string `json:"browser_download_url"`
+			} `json:"assets"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+			updateError = "Failed to parse update information"
+			return
+		}
+
+		newer, err := isNewerVersion(release.TagName, version)
+		if err != nil {
+			updateError = "Failed to compare version numbers"
+			return
+		}
+		if !newer {
+			return // already up to date - stay silent
+		}
+
+		var downloadURL string
+		for _, a := range release.Assets {
+			if a.Name == "ZeeCrypt.exe" {
+				downloadURL = a.BrowserDownloadURL
+			}
+		}
+		if downloadURL == "" {
+			updateError = "Update found, but no download was published for it"
+			return
+		}
+
+		m := checksumRegex.FindStringSubmatch(release.Body)
+		if len(m) != 2 {
+			updateError = "Update found, but its checksum couldn't be verified"
+			return
+		}
+
+		updateVersion = release.TagName
+		updateNotes = release.Body
+		updateDownloadURL = downloadURL
+		updateChecksum = m[1]
+		updateAvailable = true
+		showUpdate = true
+		modalId++
+	}()
+}
+
+// applyUpdate downloads the update, verifies its checksum, then replaces the
+// running executable and relaunches it. Windows won't let a running exe be
+// overwritten, but it does allow renaming one out from under itself: the
+// current exe is renamed aside, the verified new one takes its place, and a
+// new process is spawned before this one exits.
+func applyUpdate() {
+	if updateApplying {
+		return
+	}
+	updateApplying = true
+	updateError = ""
+	giu.Update()
+
+	go func() {
+		success := false
+		defer func() {
+			updateApplying = false
+			if !success {
+				giu.Update()
+			}
+		}()
+
+		client := &http.Client{Timeout: 5 * time.Minute}
+		resp, err := client.Get(updateDownloadURL)
+		if err != nil {
+			updateError = "Failed to download the update"
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			updateError = "Failed to download the update"
+			return
+		}
+
+		tmpFile, err := os.CreateTemp("", "ZeeCrypt-update-*.exe")
+		if err != nil {
+			updateError = "Failed to prepare the update"
+			return
+		}
+		tmpPath := tmpFile.Name()
+
+		hasher := sha256.New()
+		if _, err := io.Copy(io.MultiWriter(tmpFile, hasher), resp.Body); err != nil {
+			tmpFile.Close()
+			os.Remove(tmpPath)
+			updateError = "Failed to download the update"
+			return
+		}
+		if err := tmpFile.Close(); err != nil {
+			os.Remove(tmpPath)
+			updateError = "Failed to download the update"
+			return
+		}
+
+		actual := hex.EncodeToString(hasher.Sum(nil))
+		if !strings.EqualFold(actual, updateChecksum) {
+			os.Remove(tmpPath)
+			updateError = "Update failed checksum verification - aborted for your safety"
+			return
+		}
+
+		currentExe, err := os.Executable()
+		if err != nil {
+			os.Remove(tmpPath)
+			updateError = "Failed to locate the running executable"
+			return
+		}
+		if resolved, err := filepath.EvalSymlinks(currentExe); err == nil {
+			currentExe = resolved
+		}
+
+		oldPath := currentExe + ".old"
+		os.Remove(oldPath) // clean up a leftover from a previous update, if any
+
+		if err := os.Rename(currentExe, oldPath); err != nil {
+			os.Remove(tmpPath)
+			updateError = "Failed to replace the running executable (check antivirus/permissions)"
+			return
+		}
+		if err := os.Rename(tmpPath, currentExe); err != nil {
+			os.Rename(oldPath, currentExe) // best-effort restore
+			updateError = "Failed to install the update"
+			return
+		}
+
+		if err := exec.Command(currentExe).Start(); err != nil {
+			updateError = "Update installed, but failed to relaunch - please start ZeeCrypt manually"
+			return
+		}
+
+		success = true
+		os.Exit(0)
+	}()
+}
+
 func main() {
 	if rsErr1 != nil || rsErr2 != nil || rsErr3 != nil || rsErr4 != nil || rsErr5 != nil || rsErr6 != nil || rsErr7 != nil {
 		panic(errors.New("rs failed to init"))
 	}
+	// Clean up a leftover .old exe from a previous self-update, if any
+	if exe, err := os.Executable(); err == nil {
+		os.Remove(exe + ".old")
+	}
+
 	// Create the main window
 	window = giu.NewMasterWindow("ZeeCrypt "+version[1:], 318, 507, giu.MasterWindowFlagsNotResizable)
 
