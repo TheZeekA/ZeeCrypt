@@ -16,7 +16,7 @@ Make sure to only download ZeeCrypt from this repository. When sharing ZeeCrypt 
 ## Windows
 To download the latest, standalone, and portable executable for Windows, click <a href="https://github.com/TheZeekA/ZeeCrypt/releases/latest/download/ZeeCrypt.exe">here</a>.
 
-If you use ZeeCrypt frequently, you can also download the [installer](https://github.com/TheZeekA/ZeeCrypt/releases/latest/download/ZeeCrypt-Installer.msi) for a Start Menu shortcut and automatic file extension association. Administrator privileges are not required to run the installer.
+If you use ZeeCrypt frequently, you can also download the [installer](https://github.com/TheZeekA/ZeeCrypt/releases/latest/download/ZeeCrypt-Installer.msi) for Start Menu and Desktop shortcuts, automatic file extension association, and a right-click "Open with ZeeCrypt" entry in Explorer. This installs to Program Files, so it requires administrator privileges (a UAC prompt) during installation.
 
 If your antivirus flags ZeeCrypt as a virus, please report it as a false positive to help everyone.
 
