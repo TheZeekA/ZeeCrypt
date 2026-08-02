@@ -2,7 +2,7 @@ package main
 
 /*
 
-ZeeCrypt v1.50 (fork of Picocrypt by Evan Su)
+ZeeCrypt v1.51 (fork of Picocrypt by Evan Su)
 Copyright (c) Evan Su
 Released under GPL-3.0-only
 https://github.com/TheZeekA/ZeeCrypt
@@ -66,7 +66,7 @@ var TRANSPARENT = color.RGBA{0x00, 0x00, 0x00, 0x00}
 
 // Generic variables
 var window *giu.MasterWindow
-var version = "v1.50"
+var version = "v1.51"
 var dpi float32
 var mode string
 var working bool
