@@ -14,8 +14,13 @@
   EULA that must be accepted before the tool will run at all. Don't bump
   the major version here without checking the licensing terms first.
 
-  Installs per-user (no administrator privileges required), matching the
-  portable download's "no admin needed" promise in the README.
+  Installs per-machine (to Program Files), which requires a UAC admin
+  prompt during install. An earlier per-user (no-admin) version of this
+  installer silently completed without actually installing anything -
+  install-time behavior can only be verified on a real Windows machine
+  (nothing in CI actually runs the installer, only builds it), so this
+  switched to the standard, far more common and better-tested per-machine
+  path rather than continuing to debug the per-user install blind.
 
   IMPORTANT: UpgradeCode must never change across releases - it's what lets
   Windows Installer detect and upgrade a previous ZeeCrypt install instead of
@@ -27,8 +32,7 @@
            Version="$(var.ProductVersion)"
            UpgradeCode="fcc59afd-06ce-40f0-8de0-46e02636afff"
            Language="1033"
-           Compressed="yes"
-           Scope="perUser">
+           Compressed="yes">
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of ZeeCrypt is already installed." />
     <MediaTemplate EmbedCab="yes" />
@@ -38,10 +42,8 @@
     <Property Id="ARPHELPLINK" Value="https://github.com/TheZeekA/ZeeCrypt" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/TheZeekA/ZeeCrypt" />
 
-    <StandardDirectory Id="LocalAppDataFolder">
-      <Directory Id="ProgramsFolder" Name="Programs">
-        <Directory Id="APPFOLDER" Name="ZeeCrypt" />
-      </Directory>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="APPFOLDER" Name="ZeeCrypt" />
     </StandardDirectory>
 
     <StandardDirectory Id="ProgramMenuFolder">
@@ -55,7 +57,7 @@
 
   <Fragment>
     <ComponentGroup Id="ProductComponents" Directory="APPFOLDER">
-      <!-- Main executable + Start Menu shortcut -->
+      <!-- Main executable + Start Menu and Desktop shortcuts -->
       <Component Id="MainExecutable" Guid="*">
         <File Id="ZeeCryptEXE" Source="$(var.ExePath)" KeyPath="yes">
           <Shortcut Id="StartMenuShortcut"
@@ -63,21 +65,32 @@
                      Name="ZeeCrypt"
                      WorkingDirectory="APPFOLDER"
                      Icon="AppIcon.ico" />
+          <Shortcut Id="DesktopShortcut"
+                     Directory="DesktopFolder"
+                     Name="ZeeCrypt"
+                     WorkingDirectory="APPFOLDER"
+                     Icon="AppIcon.ico" />
         </File>
       </Component>
 
-      <!-- .pcv file association -->
+      <!--
+        .pcv file association. HKCR is the correct root for a per-machine
+        install: WiX/Windows Installer resolves it to
+        HKEY_LOCAL_MACHINE\Software\Classes, which is visible to every user
+        on the machine (as opposed to HKCU, which would only apply to
+        whichever account happened to run the elevated installer).
+      -->
       <Component Id="FileAssociation" Guid="*">
-        <RegistryValue Root="HKCU" Key="Software\Classes\.pcv" Value="ZeeCrypt.pcv" Type="string" KeyPath="yes" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\ZeeCrypt.pcv" Value="ZeeCrypt Encrypted Volume" Type="string" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\ZeeCrypt.pcv\DefaultIcon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\ZeeCrypt.pcv\shell\open\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKCR" Key=".pcv" Value="ZeeCrypt.pcv" Type="string" KeyPath="yes" />
+        <RegistryValue Root="HKCR" Key="ZeeCrypt.pcv" Value="ZeeCrypt Encrypted Volume" Type="string" />
+        <RegistryValue Root="HKCR" Key="ZeeCrypt.pcv\DefaultIcon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
+        <RegistryValue Root="HKCR" Key="ZeeCrypt.pcv\shell\open\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; &quot;%1&quot;" Type="string" />
       </Component>
 
       <!-- Clean up the Start Menu folder on uninstall -->
       <Component Id="RemoveStartMenuShortcut" Directory="ApplicationProgramsFolder" Guid="*">
         <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
-        <RegistryValue Root="HKCU" Key="Software\ZeeCrypt" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+        <RegistryValue Root="HKLM" Key="Software\ZeeCrypt" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
 
       <!--
@@ -92,17 +105,17 @@
         uses), instead of one instance per selected item.
       -->
       <Component Id="ContextMenuFiles" Guid="*">
-        <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\ZeeCrypt" Value="Open with ZeeCrypt" Type="string" KeyPath="yes" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\ZeeCrypt" Name="Icon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\ZeeCrypt" Name="MultiSelectModel" Value="Player" Type="string" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\ZeeCrypt\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; %1" Type="string" />
+        <RegistryValue Root="HKCR" Key="*\shell\ZeeCrypt" Value="Open with ZeeCrypt" Type="string" KeyPath="yes" />
+        <RegistryValue Root="HKCR" Key="*\shell\ZeeCrypt" Name="Icon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
+        <RegistryValue Root="HKCR" Key="*\shell\ZeeCrypt" Name="MultiSelectModel" Value="Player" Type="string" />
+        <RegistryValue Root="HKCR" Key="*\shell\ZeeCrypt\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; %1" Type="string" />
       </Component>
 
       <Component Id="ContextMenuFolders" Guid="*">
-        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\ZeeCrypt" Value="Open with ZeeCrypt" Type="string" KeyPath="yes" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\ZeeCrypt" Name="Icon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\ZeeCrypt" Name="MultiSelectModel" Value="Player" Type="string" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\ZeeCrypt\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; %1" Type="string" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\ZeeCrypt" Value="Open with ZeeCrypt" Type="string" KeyPath="yes" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\ZeeCrypt" Name="Icon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\ZeeCrypt" Name="MultiSelectModel" Value="Player" Type="string" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\ZeeCrypt\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; %1" Type="string" />
       </Component>
     </ComponentGroup>
   </Fragment>
