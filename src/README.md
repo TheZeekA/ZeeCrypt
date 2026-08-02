@@ -22,8 +22,16 @@ You should now see a compiled executable (`ZeeCrypt.exe`) in your directory, wit
 # Updating the app icon
 The icon is embedded automatically via `rsrc_windows_386.syso`/`rsrc_windows_amd64.syso` in this directory, which `go build` links in without any extra flags. If you change `images/lock.ico`, regenerate these files:
 ```
-go install github.com/tc-hib/go-winres@latest
 cd src
-go-winres make
+go tool go-winres make
 ```
-This reads `src/winres/winres.json` and rewrites the `.syso` files to match the new icon.
+This reads `src/winres/winres.json` (icon only — see below) and rewrites the `.syso` files to match the new icon.
+
+# Manifest and version info
+`src/winres/winres.json` also defines the app manifest (`RT_MANIFEST`, sourced from `dist/windows/manifest.xml`) and version info (`RT_VERSION`, shown in Explorer's file Properties dialog). These are **not** compiled into the `.syso` files above — this project links with cgo (for GLFW) via mingw, whose C runtime auto-links its own `default-manifest.o` into GUI executables, which conflicts with an embedded `RT_MANIFEST` at link time (`ld: .rsrc merge failure: multiple non-default manifests`). Version info alone doesn't hit this conflict, but it's kept alongside the manifest in the same file for a single source of truth.
+
+Instead, CI (and release builds) patch the manifest and version info into the already-built exe as a separate step:
+```
+go tool go-winres patch --in winres/winres.json --no-backup ZeeCrypt.exe
+```
+When bumping `VERSION`, also update `file_version`/`product_version`/`FileVersion` in `src/winres/winres.json` to match.

@@ -43,32 +43,17 @@ jobs:
         CGO_ENABLED: 1
         GOAMD64: v1
 
-    - name: Add icon, manifest, and version info
-      shell: pwsh
+    - name: Add manifest and version info
       run: |
-        Invoke-WebRequest -OutFile reshacker_setup.zip https://github.com/user-attachments/files/18878075/reshacker_setup.zip
-        Expand-Archive -DestinationPath reshacker_setup reshacker_setup.zip
-        reshacker_setup/reshacker_setup.exe /SILENT
-        Start-Sleep -Seconds 60
-        Invoke-Expression "& `"$Env:P`" -open src/1.exe -save src/2.exe -action addoverwrite -res images/lock.ico -mask `"ICONGROUP,MAINICON,`""
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open src/2.exe -save src/3.exe -action addoverwrite -res images/lock.ico -mask `"ICONGROUP,GLFW_ICON,`""
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open src/3.exe -save src/4.exe -action addoverwrite -res dist/windows/manifest.xml -mask `"MANIFEST,1,`""
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open dist/windows/versioninfo.rc -save resources.res -action compile"
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open src/4.exe -save src/5.exe -action addoverwrite -res resources.res"
-        Start-Sleep -Seconds 30
-      env:
-        P: "C:\\Program Files (x86)\\Resource Hacker\\ResourceHacker.exe"
+        cd src
+        go tool go-winres patch --in winres/winres.json --no-backup 1.exe
 
     - name: Compress with upx
       shell: pwsh
       run: |
         Invoke-WebRequest -OutFile upx.zip https://github.com/upx/upx/releases/download/v5.0.2/upx-5.0.2-win64.zip
         Expand-Archive -DestinationPath upx upx.zip
-        upx/upx-5.0.2-win64/upx.exe --lzma -o src/ZeeCrypt.exe src/5.exe
+        upx/upx-5.0.2-win64/upx.exe --lzma -o src/ZeeCrypt.exe src/1.exe
 
     - name: Install WiX
       shell: pwsh
