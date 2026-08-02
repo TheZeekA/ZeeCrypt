@@ -1,5 +1,12 @@
 > History prior to the ZeeCrypt fork belongs to the original [Picocrypt](https://github.com/Picocrypt/Picocrypt) project. New entries for ZeeCrypt will be added above this note going forward.
 
+# v1.51 (Released 08/02/2026)
+<ul>
+	<li>✓ Added Explorer right-click integration: a single "Open with ZeeCrypt" entry for files and folders. The app already auto-detects encrypt vs. decrypt from what's opened, so there's no separate Encrypt/Decrypt entry to guess wrong. Multi-select launches one instance with every selected path passed along.</li>
+	<li>✓ Added a version display at the bottom of the window. Clicking it checks the latest GitHub release (only when clicked - no automatic/background network requests) and, if a newer version is available, shows the release notes with an explicit "Update Now" button.</li>
+	<li>✓ Updating downloads the new build, verifies its SHA-256 checksum against what's published in the release notes, and aborts if it doesn't match, before replacing the running executable and relaunching.</li>
+</ul>
+
 # v1.50 (Released 08/02/2026)
 <ul>
 	<li>✓ Security: replaced the header's bare SHA3-512 hash of the encryption key with an HMAC-SHA3-512 of the header (flags, salts, IVs), keyed by an independent password-derived subkey. This authenticates the header against tampering in addition to verifying the password (fixes PCC-001 and PCC-006 from the Picocrypt security audit). This is a breaking format change: v1.50 cannot open volumes from Picocrypt or earlier ZeeCrypt versions.</li>
