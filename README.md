@@ -81,66 +81,6 @@ Yes, ZeeCrypt is secure against quantum computers. All of the cryptography used 
 
 # License
 This project is licensed under **GPL-3.0-only**, as a fork of [Picocrypt](https://github.com/Picocrypt/Picocrypt) (also GPL-3.0-only).
-
-# Acknowledgements
-ZeeCrypt is a fork of [Picocrypt](https://github.com/Picocrypt/Picocrypt) by Evan Su. Everything below credits the people who supported the original Picocrypt project prior to this fork.
-
-A thank you from the bottom of my heart to the significant contributors on [Open Collective](https://opencollective.com/picocrypt):
-<ul>
-	<li><strong>Mikołaj ($1674)</strong></li>
-	<li><strong>Guest ($842)</strong></li>
-	<li><strong>YellowNight ($818)</strong></li>
-	<li>Incognito ($135)</li>
-	<li>akp ($98)</li>
-	<li>JC ($90)</li>
-	<li>evelian ($50)</li>
-	<li>jp26 ($50)</li>
-	<li>guest-116103ad ($50)</li>
-	<li>Guest ($27)</li>
-	<li>Gittan Pade ($25)</li>
-	<li>Pokabu ($20)</li>
-	<li>oli ($20)</li>
-	<li>Bright ($20)</li>
-	<li>Incognito ($20)</li>
-	<li>Guest ($20)</li>
-	<li>JokiBlue ($20)</li>
-	<li>Guest ($20)</li>
-	<li>Markus ($15)</li>
-	<li>EN ($15)</li>
-	<li>Guest ($13)</li>
-	<li>Tybbs ($10)</li>
-	<li>N. Chin ($10)</li>
-	<li>Manjot ($10)</li>
-	<li>Phil P. ($10)</li>
-	<li>Raymond ($10)</li>
-	<li>Cohen ($10)</li>
-	<li>EuA ($10)</li>
-	<li>geevade ($10)</li>
-	<li>Guest ($10)</li>
-	<li>Hilebrinest ($10)</li>
-	<li>gabu.gu ($10)</li>
-	<li>Boat ($10)</li>
-	<li>Guest ($10)</li>
-</ul>
-<!-- Last updated July 12, 2024 -->
-
-Also, a huge thanks to the following people who were the first to donate and support Picocrypt:
-<ul>
-	<li>W.Graham</li>
-	<li>N. Chin</li>
-	<li>Manjot</li>
-	<li>Phil P.</li>
-	<li>E. Zahard</li>
-</ul>
-
-Finally, thanks to these people/organizations for helping out the original Picocrypt project when needed:
-<ul>
-	<li>u/greenreddits for constant feedback and support</li>
-	<li>u/Tall_Escape for helping test Picocrypt</li>
-	<li>u/NSABackdoors for doing plenty of testing</li>
-	<li>@samuel-lucas6 for feedback, suggestions, and support</li>
-	<li>@AsuxAX and @Minibus93 for testing new features</li>
-	<li>@mdanish-kh and @stephengillie for the WinGet package</li>
 	<li>@Retengart for helping create the Flatpak and housekeeping it</li>
 	<li><a href="https://privacyguides.org">Privacy Guides</a> for (previously) listing Picocrypt</li>
 	<li><a href="https://www.radicallyopensecurity.com/">Radically Open Security</a> for auditing Picocrypt</li>
