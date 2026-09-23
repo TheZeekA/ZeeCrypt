@@ -29,12 +29,14 @@ A ZeeCrypt volume's header is encoded with Reed-Solomon by default since it is, 
 | 93+3C  | 96           | 32           | Salt for HKDF-SHA3
 | 189+3C | 48           | 16           | IV for Serpent
 | 237+3C | 72           | 24           | Nonce for XChaCha20
-| 309+3C | 192          | 64           | HMAC-SHA3-512 of the header (flags, salts, IVs), keyed by a subkey derived from the password
+| 309+3C | 192          | 64           | HMAC-SHA3-512 of the header (flags, salts, IVs), keyed by a subkey derived from the password and keyfiles
 | 501+3C | 96           | 32           | SHA3-256 of keyfile key
 | 597+3C | 192          | 64           | Authentication tag (BLAKE2b/HMAC-SHA3)
 | 789+3C |              |              | Encrypted contents of input data
 
 As of v1.50, this header HMAC replaces a bare SHA3-512 hash of the encryption key. Verifying it before any data is processed both detects an incorrect password and detects tampering with the header's decryption parameters (flags, salts, IVs) — closing findings PCC-001 and PCC-006 from the original Picocrypt security audit (Radically Open Security, September 2024). The comment field is deliberately excluded from this HMAC (see the in-app tooltip: comments are neither encrypted nor tamper-protected). This is a breaking format change — ZeeCrypt v1.50 cannot open volumes created by Picocrypt or by ZeeCrypt versions prior to 1.50.
+
+As of v1.52, the header HMAC subkey is derived (HKDF-SHA3, info `zeecrypt-header-mac`) from the final encryption key, i.e. after the Argon2 output has been XORed with the keyfile key. In v1.50–1.51 it was derived before that XOR, so for a keyfile-only volume (empty password) the subkey depended only on `argon2id("", salt)` — computable from the header alone — and anyone could rewrite the header parameters and recompute a valid HMAC. Because the data MAC authenticates the ciphertext but not the nonce/IV, a rewritten nonce then decrypted "successfully" to garbage. This is another breaking change, but only for volumes that use keyfiles: keyfile volumes made with v1.50 or v1.51 must be decrypted with v1.51 and re-encrypted. Password-only volumes are unaffected.
 
 # Keyfile Design
 ZeeCrypt allows the use of keyfiles as an additional form of authentication. ZeeCrypt's unique "Require correct order" feature enforces the user to drop keyfiles into the window in the same order as they did when encrypting in order to decrypt the volume successfully. Here's how it works:
