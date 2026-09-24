@@ -2,7 +2,7 @@ package main
 
 /*
 
-ZeeCrypt v1.51 (fork of Picocrypt by Evan Su)
+ZeeCrypt v1.52 (fork of Picocrypt by Evan Su)
 Copyright (c) Evan Su
 Released under GPL-3.0-only
 https://github.com/TheZeekA/ZeeCrypt
@@ -66,7 +66,7 @@ var TRANSPARENT = color.RGBA{0x00, 0x00, 0x00, 0x00}
 
 // Generic variables
 var window *giu.MasterWindow
-var version = "v1.51"
+var version = "v1.52"
 var dpi float32
 var mode string
 var working bool
@@ -168,6 +168,12 @@ var rs64, rsErr6 = infectious.NewFEC(64, 192)
 var rs128, rsErr7 = infectious.NewFEC(128, 136)
 var fastDecode bool
 
+// Temporary files created by work(), so failure paths only ever delete
+// files that work() itself made (see removeTempInput)
+var tempZipFile string    // zip of the selected items, when encrypting
+var recombinedFile string // split volume recombined into one file
+var unwrappedFile string  // deniable volume with the deniability layer removed
+
 // Compression variables and passthrough
 var compressDone int64
 var compressTotal int64
@@ -223,6 +229,12 @@ func (ezr *encryptedZipReader) Read(data []byte) (n int, err error) {
 }
 
 func onClickStartButton() {
+	// Enter calls this even while a modal is open; never start a second
+	// operation, or one that a pending self-update would kill
+	if working || showProgress || showOverwrite || updateApplying {
+		return
+	}
+
 	// Start button should be disabled if these conditions are true; don't do anything if so
 	if (len(keyfiles) == 0 && password == "") || (mode == "encrypt" && password != cpassword) {
 		return
@@ -271,7 +283,7 @@ func onClickStartButton() {
 		giu.Update()
 		if !recursively {
 			go func() {
-				work()
+				work(false)
 				working = false
 				showProgress = false
 				giu.Update()
@@ -314,8 +326,9 @@ func onClickStartButton() {
 					splitSize = oldSplitSize
 					splitSelected = oldSplitSelected
 					delete = oldDelete
+					fastDecode = true // a repair pass on the previous file clears it
 
-					work()
+					work(false)
 					if !working {
 						resetUI()
 						cancel(nil, nil)
@@ -432,7 +445,7 @@ func draw() {
 							modalId++
 							giu.Update()
 							go func() {
-								work()
+								work(false)
 								working = false
 								showProgress = false
 								giu.Update()
@@ -1261,13 +1274,19 @@ func onDrop(names []string) {
 	}()
 }
 
-func work() {
+// 'prepared' is true on the Reed-Solomon repair pass, where 'inputFile' is
+// already the recombined and/or unwrapped volume from the first pass
+func work(prepared bool) {
 	popupStatus = "Starting..."
 	mainStatus = "Working..."
 	mainStatusColor = NEUTRAL
 	working = true
 	padded := false
 	giu.Update()
+
+	if !prepared {
+		tempZipFile, recombinedFile, unwrappedFile = "", "", ""
+	}
 
 	// Cryptography values
 	var salt []byte                    // Argon2 salt, 16 bytes
@@ -1323,11 +1342,17 @@ func work() {
 
 		// Open a temporary .zip for writing
 		inputFile = strings.TrimSuffix(outputFile, ".pcv") + ".tmp"
+		if _, err := os.Stat(inputFile); err == nil {
+			mainStatus = "Please remove " + filepath.Base(inputFile)
+			mainStatusColor = RED
+			return
+		}
 		file, err := os.Create(inputFile)
 		if err != nil { // Make sure file is writable
 			accessDenied("Write")
 			return
 		}
+		tempZipFile = inputFile
 
 		// Add each file to the .zip
 		tempZip := encryptedZipWriter{
@@ -1422,7 +1447,7 @@ func work() {
 	}
 
 	// Recombine a split file if necessary
-	if recombine {
+	if recombine && !prepared {
 		totalFiles := 0
 		totalBytes := int64(0)
 		done := 0
@@ -1501,12 +1526,13 @@ func work() {
 		if err := fout.Close(); err != nil {
 			panic(err)
 		}
+		recombinedFile = outputFile + ".pcv"
 		inputFileOld = inputFile
 		inputFile = outputFile + ".pcv"
 	}
 
 	// Input volume has plausible deniability
-	if mode == "decrypt" && deniability {
+	if mode == "decrypt" && deniability && !prepared {
 		popupStatus = "Removing deniability protection..."
 		progressInfo = ""
 		progress = 0
@@ -1531,19 +1557,30 @@ func work() {
 			inputFile = strings.TrimSuffix(inputFile, ".tmp")
 		}
 		inputFile += ".tmp"
+		if _, err := os.Stat(inputFile); err == nil {
+			fin.Close()
+			mainStatus = "Please remove " + filepath.Base(inputFile)
+			mainStatusColor = RED
+			inputFile = strings.TrimSuffix(inputFile, ".tmp")
+			removeTempInput()
+			return
+		}
 		fout, err := os.Create(inputFile)
 		if err != nil {
 			panic(err)
 		}
+		unwrappedFile = inputFile
 
 		// Get the Argon2 salt and XChaCha20 nonce from input volume
 		salt := make([]byte, 16)
 		nonce := make([]byte, 24)
 		if n, err := fin.Read(salt); err != nil || n != 16 {
-			panic(errors.New("failed to read 16 bytes from file"))
+			broken(fin, fout, "The file is too short to be a volume", true)
+			return
 		}
 		if n, err := fin.Read(nonce); err != nil || n != 24 {
-			panic(errors.New("failed to read 24 bytes from file"))
+			broken(fin, fout, "The file is too short to be a volume", true)
+			return
 		}
 
 		// Generate key and XChaCha20
@@ -1565,9 +1602,9 @@ func work() {
 			dst := make([]byte, len(src))
 			chacha.XORKeyStream(dst, src)
 			if n, err := fout.Write(dst); err != nil || n != len(dst) {
-				fout.Close()
-				os.Remove(fout.Name())
-				panic(errors.New("failed to write dst"))
+				insufficientSpace(fin, fout)
+				removeTempInput()
+				return
 			}
 
 			// Update stats
@@ -1605,19 +1642,15 @@ func work() {
 		}
 		tmp := make([]byte, 15)
 		if n, err := fin.Read(tmp); err != nil || n != 15 {
-			panic(errors.New("failed to read 15 bytes from file"))
+			broken(fin, nil, "Password is incorrect or the file is not a volume", true)
+			return
 		}
 		if err := fin.Close(); err != nil {
 			panic(err)
 		}
 		tmp, err = rsDecode(rs5, tmp)
 		if valid, _ := regexp.Match(`^v1\.\d{2}`, tmp); err != nil || !valid {
-			os.Remove(inputFile)
-			inputFile = strings.TrimSuffix(inputFile, ".tmp")
 			broken(nil, nil, "Password is incorrect or the file is not a volume", true)
-			if recombine {
-				inputFile = inputFileOld
-			}
 			return
 		}
 	}
@@ -1630,6 +1663,7 @@ func work() {
 	// Subtract the header size from the total size if decrypting
 	stat, err := os.Stat(inputFile)
 	if err != nil {
+		removeTempInput()
 		resetUI()
 		accessDenied("Read")
 		return
@@ -1642,6 +1676,7 @@ func work() {
 	// Open input file in read-only mode
 	fin, err := os.Open(inputFile)
 	if err != nil {
+		removeTempInput()
 		resetUI()
 		accessDenied("Read")
 		return
@@ -1662,9 +1697,7 @@ func work() {
 		_, err = os.Stat(outputFile)
 		if split && err == nil { // File already exists
 			fin.Close()
-			if len(allFiles) > 1 || len(onlyFolders) > 0 || compress {
-				os.Remove(inputFile)
-			}
+			removeTempInput()
 			mainStatus = "Please remove " + filepath.Base(outputFile)
 			mainStatusColor = RED
 			return
@@ -1674,9 +1707,7 @@ func work() {
 		fout, err = os.Create(outputFile + ".incomplete")
 		if err != nil {
 			fin.Close()
-			if len(allFiles) > 1 || len(onlyFolders) > 0 || compress {
-				os.Remove(inputFile)
-			}
+			removeTempInput()
 			accessDenied("Write")
 			return
 		}
@@ -1693,9 +1724,7 @@ func work() {
 		if len(comments) > 99999 {
 			fin.Close()
 			fout.Close()
-			if len(allFiles) > 1 || len(onlyFolders) > 0 || compress {
-				os.Remove(inputFile)
-			}
+			removeTempInput()
 			os.Remove(fout.Name())
 			mainStatus = "Comment exceeds the maximum length of 99,999 characters"
 			mainStatusColor = RED
@@ -1773,9 +1802,7 @@ func work() {
 		for _, err := range errs {
 			if err != nil {
 				insufficientSpace(fin, fout)
-				if len(allFiles) > 1 || len(onlyFolders) > 0 || compress {
-					os.Remove(inputFile)
-				}
+				removeTempInput()
 				os.Remove(fout.Name())
 				return
 			}
@@ -1854,6 +1881,12 @@ func work() {
 				}
 			}
 		}
+	}
+
+	// A deniable volume only reveals that it needs keyfiles once unwrapped
+	if mode == "decrypt" && keyfile && len(keyfiles) == 0 {
+		broken(fin, nil, "This volume requires keyfiles, please select them", true)
+		return
 	}
 
 	popupStatus = "Deriving key..."
@@ -1990,25 +2023,41 @@ func work() {
 	popupStatus = "Calculating values..."
 	giu.Update()
 
+	var passwordKey []byte // pre-keyfile key, only to recognize v1.50/1.51 volumes
+	if len(keyfiles) > 0 || keyfile {
+		// Prevent an even number of duplicate keyfiles
+		if bytes.Equal(keyfileKey, make([]byte, 32)) {
+			mainStatus = "Duplicate keyfiles detected"
+			mainStatusColor = RED
+			fin.Close()
+			removeTempInput()
+			if fout != nil {
+				fout.Close()
+				os.Remove(fout.Name())
+			}
+			return
+		}
+
+		// XOR the encryption key with the keyfile key
+		tmp := key
+		passwordKey = tmp
+		key = make([]byte, 32)
+		for i := range key {
+			key[i] = tmp[i] ^ keyfileKey[i]
+		}
+	}
+
 	// Authenticate the header's decryption parameters (flags, salts, IVs) with
 	// an HMAC keyed by a subkey independent from the data-encryption and
 	// data-MAC keys. A successful comparison proves both a correct password
-	// and an untampered header, replacing the old bare hash of the key.
+	// and keyfiles, and an untampered header, replacing the old bare hash of
+	// the key. The subkey is derived after the keyfile key is mixed in (v1.52):
+	// otherwise a keyfile-only volume's header MAC would depend only on an
+	// empty password, letting anyone forge it.
 	// The comment field is intentionally excluded (see the UI tooltip warning
 	// that comments aren't tamper-protected): it isn't re-derived from disk
 	// during decryption, so including it here could cause spurious failures.
-	headerSubkey := make([]byte, 32)
-	headerHKDF := hkdf.New(sha3.New256, key, hkdfSalt, []byte("zeecrypt-header-mac"))
-	if n, err := headerHKDF.Read(headerSubkey); err != nil || n != 32 {
-		panic(errors.New("fatal hkdf.Read error"))
-	}
-	headerMACFunc := hmac.New(sha3.New512, headerSubkey)
-	for _, part := range [][]byte{flags, salt, hkdfSalt, serpentIV, nonce} {
-		if _, err := headerMACFunc.Write(part); err != nil {
-			panic(err)
-		}
-	}
-	headerMAC = headerMACFunc.Sum(nil)
+	headerMAC = computeHeaderMAC(key, hkdfSalt, flags, salt, hkdfSalt, serpentIV, nonce)
 
 	// Validate the password and/or keyfiles
 	if mode == "decrypt" {
@@ -2024,24 +2073,23 @@ func work() {
 			if keep {
 				kept = true
 			} else {
-				if !keyCorrect {
-					mainStatus = "The provided password is incorrect, or the file has been tampered with"
-				} else {
+				// Wrong keyfiles also fail the header MAC, so check them first
+				if (keyfile || len(keyfiles) > 0) && !keyfileCorrect {
 					if keyfileOrdered {
 						mainStatus = "Incorrect keyfiles or ordering"
 					} else {
 						mainStatus = "Incorrect keyfiles"
 					}
-					if deniability {
-						fin.Close()
-						os.Remove(inputFile)
-						inputFile = strings.TrimSuffix(inputFile, ".tmp")
-					}
+				} else if passwordKey != nil && subtle.ConstantTimeCompare(headerMACRef,
+					computeHeaderMAC(passwordKey, hkdfSalt, flags, salt, hkdfSalt, serpentIV, nonce)) == 1 {
+					// v1.52 changed the header MAC for keyfile volumes. The old
+					// MAC is only recognized for this message, never accepted:
+					// without a password anyone can forge it.
+					mainStatus = "This keyfile volume is from v1.50/1.51, use ZeeCrypt v1.51 to decrypt it"
+				} else {
+					mainStatus = "The provided password is incorrect, or the file has been tampered with"
 				}
 				broken(fin, nil, mainStatus, true)
-				if recombine {
-					inputFile = inputFileOld
-				}
 				return
 			}
 		}
@@ -2050,33 +2098,9 @@ func work() {
 		fout, err = os.Create(outputFile + ".incomplete")
 		if err != nil {
 			fin.Close()
-			if recombine {
-				os.Remove(inputFile)
-			}
+			removeTempInput()
 			accessDenied("Write")
 			return
-		}
-	}
-
-	if len(keyfiles) > 0 || keyfile {
-		// Prevent an even number of duplicate keyfiles
-		if bytes.Equal(keyfileKey, make([]byte, 32)) {
-			mainStatus = "Duplicate keyfiles detected"
-			mainStatusColor = RED
-			fin.Close()
-			if len(allFiles) > 1 || len(onlyFolders) > 0 || compress {
-				os.Remove(inputFile)
-			}
-			fout.Close()
-			os.Remove(fout.Name())
-			return
-		}
-
-		// XOR the encryption key with the keyfile key
-		tmp := key
-		key = make([]byte, 32)
-		for i := range key {
-			key[i] = tmp[i] ^ keyfileKey[i]
 		}
 	}
 
@@ -2123,9 +2147,7 @@ func work() {
 	for {
 		if !working {
 			cancel(fin, fout)
-			if recombine || len(allFiles) > 1 || len(onlyFolders) > 0 || compress {
-				os.Remove(inputFile)
-			}
+			removeTempInput()
 			os.Remove(fout.Name())
 			return
 		}
@@ -2211,6 +2233,15 @@ func work() {
 							giu.Update()
 						}
 					}
+				} else if len(dst) < 136 {
+					// A trailing fragment smaller than one encoded chunk can only
+					// come from a truncated or appended-to file
+					if keep {
+						kept = true
+					} else {
+						broken(fin, fout, "The input file is irrecoverably damaged", false)
+						return
+					}
 				} else {
 					// Decode the full chunks
 					chunks := len(dst)/136 - 1
@@ -2264,9 +2295,7 @@ func work() {
 		_, err = fout.Write(dst)
 		if err != nil {
 			insufficientSpace(fin, fout)
-			if recombine || len(allFiles) > 1 || len(onlyFolders) > 0 || compress {
-				os.Remove(inputFile)
-			}
+			removeTempInput()
 			os.Remove(fout.Name())
 			return
 		}
@@ -2345,7 +2374,8 @@ func work() {
 				fastDecode = false
 				fin.Close()
 				fout.Close()
-				work()
+				os.Remove(fout.Name()) // unverified fast-pass output
+				work(true)
 				return
 			}
 
@@ -2528,7 +2558,17 @@ func work() {
 		startTime := time.Now()
 		for i := range chunks {
 			// Make the chunk
-			fout, _ := os.Create(fmt.Sprintf("%s.%d.incomplete", outputFile, i))
+			fout, err := os.Create(fmt.Sprintf("%s.%d.incomplete", outputFile, i))
+			if err != nil {
+				fin.Close()
+				removeTempInput()
+				os.Remove(outputFile)
+				for _, j := range splitted { // Remove existing chunks
+					os.Remove(j)
+				}
+				accessDenied("Write")
+				return
+			}
 			done := 0
 
 			// Copy data into the chunk
@@ -2544,14 +2584,12 @@ func work() {
 				}
 				if !working {
 					cancel(fin, fout)
-					if len(allFiles) > 1 || len(onlyFolders) > 0 || compress {
-						os.Remove(inputFile)
-					}
+					removeTempInput()
 					os.Remove(outputFile)
 					for _, j := range splitted { // Remove existing chunks
 						os.Remove(j)
 					}
-					os.Remove(fmt.Sprintf("%s.%d", outputFile, i))
+					os.Remove(fmt.Sprintf("%s.%d.incomplete", outputFile, i))
 					return
 				}
 
@@ -2559,14 +2597,12 @@ func work() {
 				_, err = fout.Write(data)
 				if err != nil {
 					insufficientSpace(fin, fout)
-					if len(allFiles) > 1 || len(onlyFolders) > 0 || compress {
-						os.Remove(inputFile)
-					}
+					removeTempInput()
 					os.Remove(outputFile)
 					for _, j := range splitted { // Remove existing chunks
 						os.Remove(j)
 					}
-					os.Remove(fmt.Sprintf("%s.%d", outputFile, i))
+					os.Remove(fmt.Sprintf("%s.%d.incomplete", outputFile, i))
 					return
 				}
 				done += read
@@ -2589,7 +2625,7 @@ func work() {
 			if finishedFiles == chunks {
 				finishedFiles--
 			}
-			splitted = append(splitted, fmt.Sprintf("%s.%d", outputFile, i))
+			splitted = append(splitted, fmt.Sprintf("%s.%d.incomplete", outputFile, i))
 			progressInfo = fmt.Sprintf("%d/%d", finishedFiles+1, chunks)
 			giu.Update()
 		}
@@ -2600,11 +2636,7 @@ func work() {
 		if err := os.Remove(outputFile); err != nil {
 			panic(err)
 		}
-		names, err = filepath.Glob(outputFile + ".*.incomplete")
-		if err != nil {
-			panic(err)
-		}
-		for _, i := range names {
+		for _, i := range splitted {
 			if err := os.Rename(i, strings.TrimSuffix(i, ".incomplete")); err != nil {
 				panic(err)
 			}
@@ -2724,12 +2756,33 @@ func broken(fin *os.File, fout *os.File, message string, keepOutput bool) {
 	mainStatus = message
 	mainStatusColor = RED
 
-	// Clean up files since decryption failed
-	if recombine {
-		os.Remove(inputFile)
-	}
+	// Clean up files since decryption failed. The output is only ever
+	// written to the ".incomplete" file; 'outputFile' itself may be an
+	// existing file the user chose to overwrite, so it's left alone.
+	removeTempInput()
 	if !keepOutput {
-		os.Remove(outputFile)
+		os.Remove(outputFile + ".incomplete")
+	}
+}
+
+// Remove the temporary input that work() prepared: the zip of the selected
+// items when encrypting, or the recombined and/or unwrapped deniable volume
+// when decrypting. 'inputFile' is restored to what the user selected so the
+// operation can be retried (e.g. with the correct password).
+func removeTempInput() {
+	if tempZipFile != "" {
+		os.Remove(tempZipFile)
+		tempZipFile = ""
+	}
+	if unwrappedFile != "" {
+		os.Remove(unwrappedFile)
+		unwrappedFile = ""
+		inputFile = strings.TrimSuffix(inputFile, ".tmp")
+	}
+	if recombinedFile != "" {
+		os.Remove(recombinedFile)
+		recombinedFile = ""
+		inputFile = inputFileOld
 	}
 }
 
@@ -2801,6 +2854,23 @@ func resetUI() {
 	giu.Update()
 }
 
+// HMAC-SHA3-512 over the header's decryption parameters, keyed by an HKDF-SHA3
+// subkey of 'key' that's independent from the data-encryption and MAC keys
+func computeHeaderMAC(key []byte, hkdfSalt []byte, parts ...[]byte) []byte {
+	subkey := make([]byte, 32)
+	r := hkdf.New(sha3.New256, key, hkdfSalt, []byte("zeecrypt-header-mac"))
+	if n, err := r.Read(subkey); err != nil || n != 32 {
+		panic(errors.New("fatal hkdf.Read error"))
+	}
+	mac := hmac.New(sha3.New512, subkey)
+	for _, part := range parts {
+		if _, err := mac.Write(part); err != nil {
+			panic(err)
+		}
+	}
+	return mac.Sum(nil)
+}
+
 // Reed-Solomon encoder
 func rsEncode(rs *infectious.FEC, data []byte) []byte {
 	res := make([]byte, rs.Total())
@@ -2843,9 +2913,13 @@ func pad(data []byte) []byte {
 	return append(data, padding...)
 }
 
-// PKCS#7 unpad
+// PKCS#7 unpad; invalid padding (a corrupted final byte) is left in place
+// so the MAC check fails and triggers repair instead of crashing here
 func unpad(data []byte) []byte {
 	padLen := int(data[127])
+	if padLen < 1 || padLen > 128 {
+		return data
+	}
 	return data[:128-padLen]
 }
 
@@ -3196,8 +3270,14 @@ func checkForUpdates() {
 		updateDownloadURL = downloadURL
 		updateChecksum = m[1]
 		updateAvailable = true
-		showUpdate = true
-		modalId++
+
+		// Don't open over the progress (or any other) modal: that would
+		// allow "Update Now" to exit mid-operation. The version label now
+		// reads "Update available" and can be clicked once things are idle.
+		if !working && !showProgress && !showOverwrite && !showKeyfile && !showPassgen {
+			showUpdate = true
+			modalId++
+		}
 	}()
 }
 
@@ -3207,7 +3287,8 @@ func checkForUpdates() {
 // current exe is renamed aside, the verified new one takes its place, and a
 // new process is spawned before this one exits.
 func applyUpdate() {
-	if updateApplying {
+	// Never swap the exe and exit while an operation is running
+	if updateApplying || working || showProgress {
 		return
 	}
 	updateApplying = true
@@ -3259,6 +3340,13 @@ func applyUpdate() {
 		if !strings.EqualFold(actual, updateChecksum) {
 			os.Remove(tmpPath)
 			updateError = "Update failed checksum verification - aborted for your safety"
+			return
+		}
+
+		// An operation may have started during the download
+		if working || showProgress {
+			os.Remove(tmpPath)
+			updateError = "Finish the current operation, then update again"
 			return
 		}
 
