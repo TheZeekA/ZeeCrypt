@@ -19,6 +19,9 @@ Note: Make sure to set `CGO_ENABLED=1` if it isn't already. Also make sure **not
 # 5. Done!
 You should now see a compiled executable (`ZeeCrypt.exe`) in your directory, with the app icon already embedded. You can run it by double-clicking or executing it in your terminal. That wasn't too hard, right? Enjoy!
 
+# Running the tests
+<code>go test .</code> (with `CGO_ENABLED=1`) runs headless end-to-end tests that drive the same code paths as the UI: round trips across every option, tampering/corruption and Reed-Solomon repair, cleanup of temporary files on failure, and compatibility with the v1.51 volumes in `testdata/`. Each encryption or decryption runs Argon2id with 1 GiB of memory, so the suite takes about a minute and needs a few GiB of free RAM.
+
 # Updating the app icon
 The icon is embedded automatically via `rsrc_windows_386.syso`/`rsrc_windows_amd64.syso` in this directory, which `go build` links in without any extra flags. If you change `images/lock.ico`, regenerate these files:
 ```

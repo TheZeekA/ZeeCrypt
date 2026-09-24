@@ -1,5 +1,20 @@
 > History prior to the ZeeCrypt fork belongs to the original [Picocrypt](https://github.com/Picocrypt/Picocrypt) project. New entries for ZeeCrypt will be added above this note going forward.
 
+# v1.52 (Unreleased)
+<ul>
+	<li>✓ Security: the header HMAC subkey is now derived after the keyfile key is mixed in. Previously a keyfile-only volume's header HMAC depended only on an empty password, so anyone could tamper with its header and recompute a valid HMAC. Because the data MAC doesn't cover the nonce, a tampered nonce then decrypted "successfully" to garbage. This is a breaking change for keyfile volumes only: decrypt keyfile volumes made with v1.50/v1.51 using v1.51, then re-encrypt. Password-only volumes are unaffected.</li>
+	<li>✓ Security: a failed decryption (damaged or modified data) now deletes the partially decrypted <code>.incomplete</code> file. Previously it was left on disk with unauthenticated plaintext, and the file chosen for overwriting was deleted instead.</li>
+	<li>✓ Security: a failed or cancelled decryption of a deniable volume no longer leaves the unwrapped <code>.tmp</code> file (which has a readable header) next to the volume.</li>
+	<li>✓ Fixed: the Reed-Solomon repair pass crashed on deniable volumes and always failed on split volumes. It now reuses the already recombined/unwrapped input.</li>
+	<li>✓ Fixed: crashes when decrypting a Reed-Solomon volume with a corrupted final padding byte or a truncated/appended tail, and when a file too short to be a volume is treated as deniable.</li>
+	<li>✓ Fixed: cancelling or running out of space while splitting now removes the partial <code>.incomplete</code> chunks.</li>
+	<li>✓ Fixed: the update prompt no longer opens over a running operation, and "Update Now" can't exit while one is in progress.</li>
+	<li>✓ Fixed: decrypting a deniable volume that needs keyfiles without selecting any shows a message instead of crashing.</li>
+	<li>✓ Fixed: pressing Enter during an operation could start a second one on the same files at the same time.</li>
+	<li>✓ Fixed: an existing file with the name of a temporary file (<code>*.tmp</code>) is no longer overwritten or deleted; you're asked to remove it instead. Cleanup only ever deletes files the app created itself.</li>
+	<li>✓ Fixed: splitting a file whose name contains <code>[</code>, <code>*</code> or <code>?</code> deleted the volume and left its chunks unusable.</li>
+</ul>
+
 # v1.51 (Released 08/02/2026)
 <ul>
 	<li>✓ Added Explorer right-click integration: a single "Open with ZeeCrypt" entry for files and folders. The app already auto-detects encrypt vs. decrypt from what's opened, so there's no separate Encrypt/Decrypt entry to guess wrong. Multi-select launches one instance with every selected path passed along.</li>
