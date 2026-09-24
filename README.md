@@ -22,6 +22,11 @@ If your antivirus flags ZeeCrypt as a virus, please report it as a false positiv
 
 ZeeCrypt targets Windows 11 only; it is not built or tested for macOS or Linux.
 
+## Compatibility and upgrading
+- **Upgrading to v2.0.0 from v1.50 or v1.51:** volumes that use keyfiles can't be opened by v2.0.0 (a security fix changed how their header is authenticated). Decrypt them with your current version *before* upgrading, then re-encrypt with v2.0.0. Password-only volumes open normally.
+- **Coming from Picocrypt:** ZeeCrypt can't open volumes made by Picocrypt or by ZeeCrypt versions before 1.50. Decrypt them with the tool that created them, then re-encrypt with ZeeCrypt.
+- See the [Changelog](Changelog.md) for everything that changed in each release.
+
 # Comparison
 Here's how ZeeCrypt compares to other popular encryption tools.
 
@@ -68,6 +73,8 @@ For more information on how ZeeCrypt handles cryptography, see <a href="Internal
 
 <strong>ZeeCrypt operates under the assumption that the host machine it is running on is safe and trusted. If that is not the case, no piece of software will be secure, and you will have much bigger problems to worry about. As such, ZeeCrypt is designed for the offline security of volumes and does not attempt to protect against side-channel analysis.</strong>
 
+One finding from the original Picocrypt audit is still open: PCC-004 (decrypt-then-verify). Integrity is checked after decryption rather than before, but output is written to a temporary <code>.incomplete</code> file that is deleted if the check fails, so tampered data is never left behind as a finished file. See [Internals](Internals.md#known-limitation-decrypt-then-verify) for details.
+
 ZeeCrypt makes no network requests on its own. The only exception is the update checker (bottom-right of the window), which only runs when you click it — it queries the GitHub Releases API and, if you choose to install an update, verifies its SHA-256 checksum before replacing the running executable. Nothing is ever downloaded or applied without you explicitly clicking to do so.
 
 # FAQ
@@ -81,7 +88,3 @@ Yes, ZeeCrypt is secure against quantum computers. All of the cryptography used 
 
 # License
 This project is licensed under **GPL-3.0-only**, as a fork of [Picocrypt](https://github.com/Picocrypt/Picocrypt) (also GPL-3.0-only).
-	<li>@Retengart for helping create the Flatpak and housekeeping it</li>
-	<li><a href="https://privacyguides.org">Privacy Guides</a> for (previously) listing Picocrypt</li>
-	<li><a href="https://www.radicallyopensecurity.com/">Radically Open Security</a> for auditing Picocrypt</li>
-</ul>
