@@ -1,8 +1,9 @@
 > History prior to the ZeeCrypt fork belongs to the original [Picocrypt](https://github.com/Picocrypt/Picocrypt) project. New entries for ZeeCrypt will be added above this note going forward.
 
-# v1.52 (Unreleased)
+# v2.0.0 (Released 09/24/2026)
 <ul>
-	<li>✓ Security: the header HMAC subkey is now derived after the keyfile key is mixed in. Previously a keyfile-only volume's header HMAC depended only on an empty password, so anyone could tamper with its header and recompute a valid HMAC. Because the data MAC doesn't cover the nonce, a tampered nonce then decrypted "successfully" to garbage. This is a breaking change for keyfile volumes only: decrypt keyfile volumes made with v1.50/v1.51 using v1.51, then re-encrypt. Password-only volumes are unaffected.</li>
+	<li>✓ Version scheme changed to three-part semantic versioning (2.0.0). The major bump reflects the keyfile volume format change below; the in-app updater and installer both upgrade cleanly from v1.51.</li>
+	<li>✓ Security: the header HMAC subkey is now derived after the keyfile key is mixed in. Previously a keyfile-only volume's header HMAC depended only on an empty password, so anyone could tamper with its header and recompute a valid HMAC. Because the data MAC doesn't cover the nonce, a tampered nonce then decrypted "successfully" to garbage. This is a breaking change for keyfile volumes only: decrypt keyfile volumes made with v1.50/v1.51 using your existing v1.51 before upgrading, then re-encrypt. Older releases are no longer published. Password-only volumes are unaffected.</li>
 	<li>✓ Security: a failed decryption (damaged or modified data) now deletes the partially decrypted <code>.incomplete</code> file. Previously it was left on disk with unauthenticated plaintext, and the file chosen for overwriting was deleted instead.</li>
 	<li>✓ Security: a failed or cancelled decryption of a deniable volume no longer leaves the unwrapped <code>.tmp</code> file (which has a readable header) next to the volume.</li>
 	<li>✓ Fixed: the Reed-Solomon repair pass crashed on deniable volumes and always failed on split volumes. It now reuses the already recombined/unwrapped input.</li>
