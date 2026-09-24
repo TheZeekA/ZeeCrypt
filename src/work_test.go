@@ -238,7 +238,7 @@ func TestKeyfileOnlyForgedHeaderRejected(t *testing.T) {
 	_, st = decrypt(t, vol, "", []string{kf}, nil)
 	// Rejected at the header, with no output. (It's forged with the old derivation,
 	// so it's reported as a v1.50/1.51 volume; either message means "not accepted".)
-	if strings.Contains(st, "Completed") || !(strings.Contains(st, "tampered") || strings.Contains(st, "v1.51")) {
+	if strings.Contains(st, "Completed") || !(strings.Contains(st, "tampered") || strings.Contains(st, "v1.50/1.51")) {
 		t.Fatalf("forged header not rejected: %q", st)
 	}
 	mustOnly(t, dir, "s.bin.pcv", "k.key")
@@ -344,7 +344,7 @@ func TestApplyUpdateRefusedWhileWorking(t *testing.T) {
 }
 
 // ---------- Compat: volumes produced by v1.51 ----------
-// Password-only volumes still open; keyfile volumes are rejected with a pointer to v1.51.
+// Password-only volumes still open; keyfile volumes are rejected as v1.50/1.51 volumes.
 
 func TestLegacyVolumes(t *testing.T) {
 	// Volumes made by v1.51 (see testdata/legacy-v1.51/README.md)
@@ -365,9 +365,9 @@ func TestLegacyVolumes(t *testing.T) {
 
 	kf := []string{filepath.Join(dir, "kf.key")}
 	_, st = decrypt(t, filepath.Join(dir, "kf.txt.pcv"), "", kf, nil)
-	mustStatus(t, st, "use ZeeCrypt v1.51")
+	mustStatus(t, st, "made with ZeeCrypt v1.50/1.51")
 	_, st = decrypt(t, filepath.Join(dir, "pkf.txt.pcv"), "legacy-pw", kf, nil)
-	mustStatus(t, st, "use ZeeCrypt v1.51")
+	mustStatus(t, st, "made with ZeeCrypt v1.50/1.51")
 	_, st = decrypt(t, filepath.Join(dir, "pkf.txt.pcv"), "typo", kf, nil)
 	mustStatus(t, st, "password is incorrect")
 	mustOnly(t, dir, "pw.txt", "pw.txt.pcv", "kf.txt.pcv", "pkf.txt.pcv", "kf.key", "plain.orig")

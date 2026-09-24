@@ -21,7 +21,7 @@ A ZeeCrypt volume's header is encoded with Reed-Solomon by default since it is, 
 **All offsets and sizes below are in bytes.**
 | Offset | Encoded size | Decoded size | Description
 | ------ | ------------ | ------------ | -----------
-| 0      | 15           | 5            | Version number (ex. "v1.15")
+| 0      | 15           | 5            | Volume format version (ex. "v1.52"). Since v2.0.0 this is independent of the app version and stays "v1.52" until the format changes
 | 15     | 15           | 5            | Length of comments, zero-padded to 5 bytes
 | 30     | 3C           | C            | Comments with a length of C characters
 | 30+3C  | 15           | 5            | Flags (paranoid mode, use keyfiles, etc.)
@@ -36,7 +36,7 @@ A ZeeCrypt volume's header is encoded with Reed-Solomon by default since it is, 
 
 As of v1.50, this header HMAC replaces a bare SHA3-512 hash of the encryption key. Verifying it before any data is processed both detects an incorrect password and detects tampering with the header's decryption parameters (flags, salts, IVs) — closing findings PCC-001 and PCC-006 from the original Picocrypt security audit (Radically Open Security, September 2024). The comment field is deliberately excluded from this HMAC (see the in-app tooltip: comments are neither encrypted nor tamper-protected). This is a breaking format change — ZeeCrypt v1.50 cannot open volumes created by Picocrypt or by ZeeCrypt versions prior to 1.50.
 
-As of v1.52, the header HMAC subkey is derived (HKDF-SHA3, info `zeecrypt-header-mac`) from the final encryption key, i.e. after the Argon2 output has been XORed with the keyfile key. In v1.50–1.51 it was derived before that XOR, so for a keyfile-only volume (empty password) the subkey depended only on `argon2id("", salt)` — computable from the header alone — and anyone could rewrite the header parameters and recompute a valid HMAC. Because the data MAC authenticates the ciphertext but not the nonce/IV, a rewritten nonce then decrypted "successfully" to garbage. This is another breaking change, but only for volumes that use keyfiles: keyfile volumes made with v1.50 or v1.51 must be decrypted with v1.51 and re-encrypted. Password-only volumes are unaffected.
+As of v2.0.0, the header HMAC subkey is derived (HKDF-SHA3, info `zeecrypt-header-mac`) from the final encryption key, i.e. after the Argon2 output has been XORed with the keyfile key. In v1.50–1.51 it was derived before that XOR, so for a keyfile-only volume (empty password) the subkey depended only on `argon2id("", salt)` — computable from the header alone — and anyone could rewrite the header parameters and recompute a valid HMAC. Because the data MAC authenticates the ciphertext but not the nonce/IV, a rewritten nonce then decrypted "successfully" to garbage. This is another breaking change, but only for volumes that use keyfiles: keyfile volumes made with v1.50 or v1.51 must be decrypted with an existing copy of v1.51 before upgrading, then re-encrypted. Password-only volumes are unaffected.
 
 # Keyfile Design
 ZeeCrypt allows the use of keyfiles as an additional form of authentication. ZeeCrypt's unique "Require correct order" feature enforces the user to drop keyfiles into the window in the same order as they did when encrypting in order to decrypt the volume successfully. Here's how it works:
