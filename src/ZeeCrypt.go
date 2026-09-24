@@ -2,7 +2,7 @@ package main
 
 /*
 
-ZeeCrypt v1.52 (fork of Picocrypt by Evan Su)
+ZeeCrypt v2.0.0 (fork of Picocrypt by Evan Su)
 Copyright (c) Evan Su
 Released under GPL-3.0-only
 https://github.com/TheZeekA/ZeeCrypt
@@ -66,7 +66,13 @@ var TRANSPARENT = color.RGBA{0x00, 0x00, 0x00, 0x00}
 
 // Generic variables
 var window *giu.MasterWindow
-var version = "v1.52"
+var version = "v2.0.0"
+
+// Written to the 5-byte header version field. It identifies the volume format,
+// not the app release, and must stay in "vX.YY" form: decryption checks it with
+// `^v\d\.\d{2}` (and `^v1\.\d{2}` for unwrapped deniable volumes).
+const headerVersion = "v1.52"
+
 var dpi float32
 var mode string
 var working bool
@@ -1718,8 +1724,8 @@ func work(prepared bool) {
 		serpentIV = make([]byte, 16)
 		nonce = make([]byte, 24)
 
-		// Write the program version to file
-		_, errs[0] = fout.Write(rsEncode(rs5, []byte(version)))
+		// Write the volume format version to file
+		_, errs[0] = fout.Write(rsEncode(rs5, []byte(headerVersion)))
 
 		if len(comments) > 99999 {
 			fin.Close()
@@ -2051,7 +2057,7 @@ func work(prepared bool) {
 	// an HMAC keyed by a subkey independent from the data-encryption and
 	// data-MAC keys. A successful comparison proves both a correct password
 	// and keyfiles, and an untampered header, replacing the old bare hash of
-	// the key. The subkey is derived after the keyfile key is mixed in (v1.52):
+	// the key. The subkey is derived after the keyfile key is mixed in (v2.0.0):
 	// otherwise a keyfile-only volume's header MAC would depend only on an
 	// empty password, letting anyone forge it.
 	// The comment field is intentionally excluded (see the UI tooltip warning
@@ -2082,10 +2088,10 @@ func work(prepared bool) {
 					}
 				} else if passwordKey != nil && subtle.ConstantTimeCompare(headerMACRef,
 					computeHeaderMAC(passwordKey, hkdfSalt, flags, salt, hkdfSalt, serpentIV, nonce)) == 1 {
-					// v1.52 changed the header MAC for keyfile volumes. The old
+					// v2.0.0 changed the header MAC for keyfile volumes. The old
 					// MAC is only recognized for this message, never accepted:
 					// without a password anyone can forge it.
-					mainStatus = "This keyfile volume is from v1.50/1.51, use ZeeCrypt v1.51 to decrypt it"
+					mainStatus = "This keyfile volume was made with ZeeCrypt v1.50/1.51 and can't be opened by this version"
 				} else {
 					mainStatus = "The provided password is incorrect, or the file has been tampered with"
 				}

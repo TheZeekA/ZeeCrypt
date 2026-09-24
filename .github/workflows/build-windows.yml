@@ -70,7 +70,7 @@ jobs:
           -d ExePath=src/ZeeCrypt.exe `
           -d IconPath=images/lock.ico `
           -d LicenseRtfPath=dist/windows/License.rtf `
-          -d ProductVersion="$($env:VERSION).0.0" `
+          -d ProductVersion="$($env:VERSION).0" `
           -o ZeeCrypt-Installer.msi
 
     - name: Upload artifact
