@@ -23,6 +23,7 @@
           "0409": {
             "CompanyName": "Teddy Jones",
             "FileVersion": "2.0.0",
+            "ProductVersion": "2.0.0",
             "LegalCopyright": "© Evan Su & contributors, GPLv3",
             "ProductName": "ZeeCrypt"
           }
