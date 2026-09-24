@@ -25,7 +25,7 @@ This repo uses two long-lived branches:
 
 Workflow for a change:
 1. Branch off `testing`
-2. Make your change, and if you touch the encryption/decryption code, actually build and round-trip test it (encrypt then decrypt) — normal mode, paranoid mode, keyfiles, deniability, Reed-Solomon, and split/recombine as relevant to your change. This is cryptographic software; a change that looks correct but silently breaks decryption is worse than no change at all.
+2. Make your change and run `go test .` in `src/` (needs `CGO_ENABLED=1` and a C compiler; takes about a minute). The suite round-trips every mode — normal, paranoid, keyfiles, deniability, Reed-Solomon, split/recombine — plus tampering, repair and cleanup. If you change the encryption/decryption code, add a test for the new behavior, and still build the app and round-trip a few real files by hand. This is cryptographic software; a change that looks correct but silently breaks decryption is worse than no change at all.
 3. Open a PR into `testing`
 4. Once merged, a maintainer will fold `testing` into `main` via a separate PR when it's ready for release
 
@@ -38,4 +38,4 @@ Please include:
 
 ## Style
 
-This is a single-file Go application (`src/ZeeCrypt.go`). Match the existing style — run `gofmt` before committing. There's no test suite; changes to the cryptographic code path need to be manually verified by actually building and round-tripping real files (see above), since it can't be validated by reading the diff alone.
+This is a single-file Go application (`src/ZeeCrypt.go`). Match the existing style — run `gofmt` before committing. Run `go test .` in `src/` before opening a PR; CI runs it on every PR too. Changes to the cryptographic code path should also be verified by building and round-tripping real files (see above), since they can't be validated by reading the diff alone.

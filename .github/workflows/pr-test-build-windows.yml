@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - main
+      - testing
   workflow_dispatch:
 
 jobs:
@@ -34,6 +35,13 @@ jobs:
       env:
         CGO_ENABLED: 1
         GOAMD64: v1
+
+    - name: Test
+      run: |
+        cd src
+        go test .
+      env:
+        CGO_ENABLED: 1
 
     - name: Add manifest and version info
       run: |
