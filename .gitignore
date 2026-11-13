@@ -10,6 +10,9 @@
 *.msi
 *.wixpdb
 install.log
+CLAUDE.md
+CONTEXT.md
+Modelfile-qwen-code
 
 # Test binary, built with `go test -c`
 *.test
