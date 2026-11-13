@@ -214,3 +214,18 @@ func TestCompressSingleFile(t *testing.T) {
 	mustContent(t, in, text)
 	mustOnly(t, dir, "report.txt.tar.zst.pcv", "report.txt")
 }
+
+func TestEntryPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "out")
+	for _, ok := range []string{"a.txt", "sub/b.txt", "sub/", "a..b.txt"} {
+		p, err := entryPath(dir, ok)
+		if err != nil || !strings.HasPrefix(p, dir+string(filepath.Separator)) {
+			t.Errorf("%q: %q %v", ok, p, err)
+		}
+	}
+	for _, bad := range []string{"../x", "sub/../../x", "/x", "C:/x", "C:x", "", "CON"} {
+		if _, err := entryPath(dir, bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

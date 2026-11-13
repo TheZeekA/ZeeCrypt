@@ -172,6 +172,21 @@ func extractDirFor(path, ext string) string {
 	return filepath.Join(filepath.Dir(path), strings.TrimSuffix(filepath.Base(path), ext))
 }
 
+// entryPath is where an archive entry goes inside 'dir'. Names were
+// already checked with zipEntryPathOK before extracting; this checks the
+// joined path again where it's used, so nothing can land outside 'dir'.
+func entryPath(dir, name string) (string, error) {
+	if !zipEntryPathOK(name) {
+		return "", errors.New("potentially malicious archive item path")
+	}
+	p := filepath.Join(dir, filepath.FromSlash(strings.TrimSuffix(name, "/")))
+	rel, err := filepath.Rel(dir, p)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", errors.New("potentially malicious archive item path")
+	}
+	return p, nil
+}
+
 // extractEntry writes one file from an archive, reporting progress
 func extractEntry(r io.Reader, outPath string, modified time.Time, progressFn func(n int)) error {
 	if err := os.MkdirAll(filepath.Dir(outPath), 0700); err != nil {
@@ -237,7 +252,11 @@ func unpackZip(zipPath string) error {
 
 	for _, f := range reader.File {
 		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(filepath.Join(extractDir, filepath.FromSlash(f.Name)), 0700); err != nil {
+			dir, err := entryPath(extractDir, f.Name)
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(dir, 0700); err != nil {
 				return err
 			}
 		}
@@ -253,7 +272,12 @@ func unpackZip(zipPath string) error {
 		if err != nil {
 			return err
 		}
-		err = extractEntry(rc, filepath.Join(extractDir, filepath.FromSlash(f.Name)), f.Modified, func(n int) {
+		outPath, err := entryPath(extractDir, f.Name)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		err = extractEntry(rc, outPath, f.Modified, func(n int) {
 			done += int64(n)
 			unpackProgress(done, totalSize, startTime, i+1, len(reader.File))
 		})
@@ -350,7 +374,10 @@ func unpackTarZst(path string) error {
 		if (h.Typeflag != tar.TypeReg && h.Typeflag != tar.TypeDir) || !zipEntryPathOK(h.Name) {
 			return errors.New("potentially malicious tar item")
 		}
-		outPath := filepath.Join(extractDir, filepath.FromSlash(strings.TrimSuffix(h.Name, "/")))
+		outPath, err := entryPath(extractDir, h.Name)
+		if err != nil {
+			return err
+		}
 		if h.Typeflag == tar.TypeDir {
 			if err := os.MkdirAll(outPath, 0700); err != nil {
 				return err
