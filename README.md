@@ -45,7 +45,7 @@ Here's how ZeeCrypt compares to other popular encryption tools.
 | Free           |✅ Yes         |✅ Yes          |✅ Yes         |✅ Bundled      |✅ Yes         |
 | Open Source    |✅ GPLv3       |✅ Multi        |✅ LGPL        |❌ No           |✅ GPLv3       |
 | Cross-Platform |❌ Windows only |✅ Yes         |❌ No          |❌ No           |✅ Yes         |
-| Size           |✅ 5 MiB       |❌ 20 MiB       |✅ 2 MiB       |✅ N/A          |❌ 50 MiB      |
+| Size           |✅ 4.5 MiB     |❌ 20 MiB       |✅ 2 MiB       |✅ N/A          |❌ 50 MiB      |
 | Portable       |✅ Yes         |✅ Yes          |❌ No          |✅ Yes          |❌ No          |
 | Permissions    |✅ None        |❌ Admin        |❌ Admin       |❌ Admin        |❌ Admin       |
 | Ease-Of-Use    |✅ Easy        |❌ Hard         |✅ Easy        |✅ Easy         |🟧 Medium      |
