@@ -70,7 +70,7 @@ var TRANSPARENT = color.RGBA{0x00, 0x00, 0x00, 0x00}
 
 // Generic variables
 var window *giu.MasterWindow
-var version = "v2.0.0"
+var version = "v3.0.0"
 
 // Written to the 5-byte header version field. It identifies the volume format,
 // not the app release, and must stay in "vX.YY" form: decryption checks it with
@@ -2113,7 +2113,7 @@ func work(prepared bool) {
 					return
 				}
 
-				// Only compared against volumes made before v2.1.0, which stored it
+				// Only compared against volumes made before v3.0.0, which stored it
 				tmp := sha3.New256()
 				if _, err := tmp.Write(keyfileKey); err != nil {
 					panic(err)
@@ -2164,7 +2164,7 @@ func work(prepared bool) {
 			if mode == "decrypt" {
 				keyCorrect := subtle.ConstantTimeCompare(headerMAC, headerMACRef) == 1
 
-				// Since v2.1.0 the keyfile hash isn't stored (it's all zeros): it let
+				// Since v3.0.0 the keyfile hash isn't stored (it's all zeros): it let
 				// anyone test keyfile guesses at hash speed, separately from the
 				// password. The header MAC alone already verifies the keyfiles.
 				keyfileHashStored := !bytes.Equal(keyfileHashRef, make([]byte, 32))

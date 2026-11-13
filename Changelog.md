@@ -1,6 +1,6 @@
 > History prior to the ZeeCrypt fork belongs to the original [Picocrypt](https://github.com/Picocrypt/Picocrypt) project. New entries for ZeeCrypt will be added above this note going forward.
 
-# v3.0.0 (Unreleased)
+# v3.0.0 (Released 11/13/2026)
 <ul>
 	<li>✓ Added: security keys as a second factor. A volume can require a FIDO2 key (hmac-secret, through Windows' built-in WebAuthn) as well as its password. Needs Windows 11 22H2+ and a key with a PIN.</li>
 	<li>✓ Added: public-key encryption. Create an identity (a key pair in a password-protected file), share your public key, keep contacts, and encrypt to one or more people's public keys, with or without a password. Keys combine X25519 with ML-KEM-768 (post-quantum).</li>
@@ -10,10 +10,6 @@
 	<li>✓ Security: comments are now authenticated (still readable without the password, but changing them is detected).</li>
 	<li>✓ The data is encrypted under a random file key that the header wraps for each way of opening the volume, which is what makes public-key recipients and hardware keys possible.</li>
 	<li>✓ Reed-Solomon repair now happens per chunk, as the file is read, instead of in a second pass over the whole file.</li>
-</ul>
-
-# v2.1.0 (Unreleased)
-<ul>
 	<li>✓ Added: signed updates. Once the release key is set up (see <code>src/README.md</code>), every release's <code>ZeeCrypt.exe</code> and MSI carry an Ed25519 signature, and the updater refuses an update without a valid one. The signature covers the version, so an old release can't be served as a new one. Until then, updates are checked against their published checksum as before.</li>
 	<li>✓ Added: compression levels (Fast, Balanced, Maximum) using zstd, several times faster than the old Deflate at a better ratio. Compressed files go into a <code>.tar.zst</code> archive, which Windows 11 Explorer and 7-Zip open natively; without compression a plain zip is still used. Auto unzip extracts <code>.tar.zst</code> archives too, rejecting links, devices and paths outside the folder.</li>
 	<li>✓ Added: "Encrypt with ZeeCrypt" (files and folders) and "Decrypt with ZeeCrypt" (<code>.pcv</code> files) in Explorer's right-click menu, next to "Open with ZeeCrypt". "Encrypt" also works on a <code>.pcv</code> file from the command line (<code>--encrypt</code>), to encrypt a volume again with another key.</li>

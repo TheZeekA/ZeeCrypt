@@ -94,7 +94,7 @@ Volumes made before v3.0.0 (header version v1.50 to v1.52) use this format; ZeeC
 | 189+3C | 48           | 16           | IV for Serpent
 | 237+3C | 72           | 24           | Nonce for XChaCha20
 | 309+3C | 192          | 64           | HMAC-SHA3-512 of the header (flags, salts, IVs), keyed by a subkey derived from the password and keyfiles
-| 501+3C | 96           | 32           | Zeros since v2.1.0 (before: SHA3-256 of keyfile key, see below)
+| 501+3C | 96           | 32           | SHA3-256 of keyfile key, or zeros (see "Keyfile Design")
 | 597+3C | 192          | 64           | Authentication tag (BLAKE2b/HMAC-SHA3)
 | 789+3C |              |              | Encrypted contents of input data
 
@@ -109,11 +109,11 @@ If correct order is not required, ZeeCrypt will take the SHA3-256 of each keyfil
 
 If correct order is required, ZeeCrypt will concatenate the keyfiles together in the order they were dropped into the window and take the SHA3-256 of the combined keyfiles. If the order is not correct, the keyfiles, when appended to each other, will result in a different file, and thus a different hash. So, the correct order of keyfiles is required to decrypt the volume successfully.
 
-Because unordered keyfile hashes are XORed, two keyfiles with identical contents cancel each other out. Since v2.1.0, encryption refuses unordered keyfiles whose contents are identical (decryption still accepts them, for older volumes).
+Because unordered keyfile hashes are XORed, two keyfiles with identical contents cancel each other out. Since v3.0.0, encryption refuses unordered keyfiles whose contents are identical (decryption still accepts them, for older volumes).
 
-Before v2.1.0, the header stored the SHA3-256 of the keyfile key so the app could tell "wrong keyfiles" from "wrong password". That hash let an attacker test candidate keyfiles at SHA3 speed without the password or Argon2, so the password and keyfiles could be guessed one after the other rather than together. Since v2.1.0 the field is written as zeros and the header HMAC alone verifies the keyfiles. On decryption, a non-zero stored hash (an older volume) is still checked, so older volumes keep their more specific error messages.
+Volumes made before v3.0.0 store the SHA3-256 of the keyfile key in the header, so the app could tell "wrong keyfiles" from "wrong password". That hash lets an attacker test candidate keyfiles at SHA3 speed without the password or Argon2, so the password and keyfiles can be guessed one after the other rather than together. The v3 format has no such field: the header MAC alone verifies the keyfiles (and ZeeCrypt's v2 writer, which only tests use now, writes zeros there). On decryption of an older volume, the stored hash is still checked, so older volumes keep their more specific error messages.
 
-Deniability requires a password since v2.1.0: the deniability layer is keyed by `argon2id(password, salt)` only, so with an empty password anyone could remove it.
+Deniability requires a password since v3.0.0: the deniability layer is keyed by `argon2id(password, salt)` only, so with an empty password anyone could remove it.
 
 # Reed-Solomon
 By default, all ZeeCrypt volume headers are encoded with Reed-Solomon to improve resiliency against bit rot. The header uses N+2N encoding, where N is the size of a particular header field such as the version number, and 2N is the number of parity bytes added. Using the Berlekamp-Welch algorithm, ZeeCrypt is able to automatically detect and correct up to 2N/2=N broken bytes.

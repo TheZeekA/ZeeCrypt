@@ -94,7 +94,7 @@ func TestWrongCredentialsMessages(t *testing.T) {
 	mustStatus(t, st, "Completed")
 	os.Remove(in)
 
-	// Since v2.1.0 the keyfile hash isn't stored, so a wrong password and
+	// Since v3.0.0 the keyfile hash isn't stored, so a wrong password and
 	// wrong keyfiles can no longer be told apart (that was the leak)
 	_, st = decrypt(t, vol, "wrong", []string{k1, k2}, nil)
 	mustStatus(t, st, "password or keyfiles are incorrect")
