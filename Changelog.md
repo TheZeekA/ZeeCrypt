@@ -1,5 +1,27 @@
 > History prior to the ZeeCrypt fork belongs to the original [Picocrypt](https://github.com/Picocrypt/Picocrypt) project. New entries for ZeeCrypt will be added above this note going forward.
 
+# v2.1.0 (Unreleased)
+<ul>
+	<li>✓ Security: the header no longer stores a SHA3-256 hash of the keyfile key (the field is written as zeros). It let anyone test keyfile guesses at hash speed, independently of the password; the header HMAC already verifies keyfiles. As a result, a wrong password and wrong keyfiles now show the same message. Volumes from earlier versions still open. <strong>v2.0.0 can't open keyfile volumes made by this version</strong> (it reports "Incorrect keyfiles").</li>
+	<li>✓ Security: deniability now requires a password. Its layer is keyed by the password alone, so with keyfiles only, anyone could remove it and reveal the volume header.</li>
+	<li>✓ Security: unordered keyfiles with identical contents (e.g. a copy under another name) are refused when encrypting. They're XORed together, so they cancelled out and silently stopped protecting the volume.</li>
+	<li>✓ Security: copied and generated passwords are kept out of Windows clipboard history and cloud clipboard sync, and cleared from the clipboard after 30 seconds.</li>
+	<li>✓ Security: if adding deniability fails part-way, the volume without its deniability layer is no longer left on disk.</li>
+	<li>✓ Fixed: dropping files into the window during an operation reset the state the operation was using, which could crash the app or corrupt the output. Drops are now ignored until it finishes.</li>
+	<li>✓ Fixed: recursive mode silently overwrote existing files (e.g. a folder with both <code>a.txt</code> and <code>a.txt.pcv</code> overwrote each with the other). Files whose output already exists are now skipped, and a summary shows how many were skipped or failed.</li>
+	<li>✓ Fixed: dropping something new while a large folder was still being scanned could mix the two selections and allow starting with a partial file list; with "Delete files", folders could be deleted with files that were never encrypted.</li>
+	<li>✓ Fixed: encrypting multiple files with deniability deleted an existing <code>&lt;output name&gt;.zip</code> file next to the volume.</li>
+	<li>✓ Fixed: "Delete volume" no longer deletes a volume that failed verification and was force-decrypted, so it can be retried.</li>
+	<li>✓ Fixed: ordinary file errors (an output open in another program, a full disk, a file that can't be deleted) now show a message instead of crashing the app, which could leave unverified plaintext behind.</li>
+	<li>✓ Fixed: splitting deleted any file named like <code>&lt;volume&gt;.pcv.*</code>, not just old numbered chunks.</li>
+	<li>✓ Fixed: items dropped from different folders (e.g. Explorer search results) produced zips with full paths that couldn't be auto-unzipped; same-named files are now renamed instead of clashing. Empty folders are now kept.</li>
+	<li>✓ Fixed: auto unzip rejected legitimate names containing <code>..</code> (e.g. <code>a..b.txt</code>), now checks for enough free space first, restores file dates, and closes each file as it goes.</li>
+	<li>✓ Fixed: "Save output as" cut the name at its first dot ("backup.2026.11" became "backup").</li>
+	<li>✓ Fixed: files like <code>x.pcv.2024x</code> were mistaken for split chunks; a truncated header now reports "too short" instead of "damaged"; the speed readout was about 5% too high; a file name starting with <code>-</code> passed on the command line no longer exits the app; a failed folder scan no longer leaves the window disabled.</li>
+	<li>✓ Updater: refuses to replace an MSI-installed copy (Program Files), which needs admin rights and would leave the install record stale; update those with the new installer.</li>
+	<li>✓ Build: release and PR workflows pin actions to commit SHAs and Go to a minor version, verify the UPX download's checksum, and run the tests before releasing; the PR workflow's token is read-only.</li>
+</ul>
+
 # v2.0.0 (Released 09/24/2026)
 <ul>
 	<li>✓ Version scheme changed to three-part semantic versioning (2.0.0). The major bump reflects the keyfile volume format change below; the in-app updater and installer both upgrade cleanly from v1.51.</li>
