@@ -4,6 +4,15 @@ ZeeCrypt is a very small, very simple, yet very secure encryption tool that you 
 
 🚀 **This repo is actively maintained.** Unlike the original (now-archived) Picocrypt, ZeeCrypt is under active development — bug reports, feature requests, and suggestions are welcome, so feel free to open an issue. See [CONTRIBUTING.md](CONTRIBUTING.md) if you'd like to contribute code, and [SECURITY.md](SECURITY.md) to report a vulnerability.
 
+## What's new in v3.0.0
+- **Public keys:** encrypt to people's public keys instead of sharing a password, with post-quantum protection (X25519 + ML-KEM-768).
+- **Signatures:** sign volumes so recipients know they came from you.
+- **Security keys:** require a YubiKey or other FIDO2 key as well as the password.
+- **Stronger format:** every chunk of data is verified before it's decrypted, and comments can't be changed without detection.
+- **zstd compression**, **Explorer "Encrypt with" / "Decrypt with" entries**, and **signed updates**.
+
+Volumes made with v3.0.0 can't be opened by earlier versions; see [Compatibility and upgrading](#compatibility-and-upgrading) and the [Changelog](Changelog.md).
+
 <br>
 <p align="center"><img align="center" src="/images/screenshot.png" width="318" alt="ZeeCrypt"></p>
 
@@ -36,7 +45,7 @@ Here's how ZeeCrypt compares to other popular encryption tools.
 | Free           |✅ Yes         |✅ Yes          |✅ Yes         |✅ Bundled      |✅ Yes         |
 | Open Source    |✅ GPLv3       |✅ Multi        |✅ LGPL        |❌ No           |✅ GPLv3       |
 | Cross-Platform |❌ Windows only |✅ Yes         |❌ No          |❌ No           |✅ Yes         |
-| Size           |✅ 3 MiB       |❌ 20 MiB       |✅ 2 MiB       |✅ N/A          |❌ 50 MiB      |
+| Size           |✅ 5 MiB       |❌ 20 MiB       |✅ 2 MiB       |✅ N/A          |❌ 50 MiB      |
 | Portable       |✅ Yes         |✅ Yes          |❌ No          |✅ Yes          |❌ No          |
 | Permissions    |✅ None        |❌ Admin        |❌ Admin       |❌ Admin        |❌ Admin       |
 | Ease-Of-Use    |✅ Easy        |❌ Hard         |✅ Easy        |✅ Easy         |🟧 Medium      |
@@ -46,6 +55,9 @@ Here's how ZeeCrypt compares to other popular encryption tools.
 | Deniability    |✅ Supported   |✅ Supported    |❌ No          |❌ No           |❌ No          |
 | Reed-Solomon   |✅ Yes         |❌ No           |❌ No          |❌ No           |❌ No          |
 | Compression    |✅ Yes         |❌ No           |✅ Yes         |✅ Yes          |❌ No          |
+| Public Keys    |✅ Post-quantum |❌ No          |❌ No          |❌ No           |❌ No          |
+| Hardware Keys  |✅ FIDO2       |🟧 Tokens       |❌ No          |✅ TPM          |❌ No          |
+| Signatures     |✅ Yes         |❌ No           |❌ No          |❌ No           |❌ No          |
 | Telemetry      |✅ None        |✅ None         |✅ None        |❓ Unknown      |✅ None        |
 
 Keep in mind that while ZeeCrypt does most things better than other tools, it's not a one-size-fits-all and doesn't try to be. There are use cases such as full-disk encryption where VeraCrypt and BitLocker would be a better (and the only) choice. So while ZeeCrypt is a great choice for the majority of people doing file encryption on Windows, you should still do your own research and use what's best for you.
@@ -56,7 +68,7 @@ ZeeCrypt is a very simple tool and most users will intuitively understand how to
 While being simple, ZeeCrypt also strives to be powerful in the hands of knowledgeable and advanced users. Thus, there are some additional options that you may use to suit your needs. Read through their descriptions carefully as some of them can be complex to use correctly.
 <ul>
 	<li><strong>Password generator</strong>: ZeeCrypt provides a secure password generator that you can use to create cryptographically secure passwords. You can customize the password length, as well as the types of characters to include.</li>
-	<li><strong>Comments</strong>: Use this to store <strong>non-sensitive</strong> text along with the volume (<strong>it won't be encrypted</strong> and simply can't be by design). For example, you can put a description of the file you're encrypting before sending it to someone. When the person you sent it to drops the volume into ZeeCrypt, your description will be shown to that person. Or, if you're backing up personal files, you can give a description of the volume's contents so you can quickly remind yourself without having to fully decrypt. Since comments are neither encrypted nor authenticated, it can be freely read and modified by an attacker. <strong>Thus, it should only be used for non-sensitive, informational purposes in trusted environments.</strong></li>
+	<li><strong>Comments</strong>: Use this to store <strong>non-sensitive</strong> text along with the volume (<strong>it won't be encrypted</strong> and simply can't be by design). For example, you can put a description of the file you're encrypting before sending it to someone. When the person you sent it to drops the volume into ZeeCrypt, your description will be shown to that person. Or, if you're backing up personal files, you can give a description of the volume's contents so you can quickly remind yourself without having to fully decrypt. Comments aren't encrypted, so anyone can read them. In volumes made with v3.0.0 or later they're authenticated: if someone changes them, decryption fails (though the changed text is shown until you try). In older volumes they could be changed without detection. <strong>Thus, it should only be used for non-sensitive, informational purposes in trusted environments.</strong></li>
 	<li><strong>Keyfiles</strong>: ZeeCrypt supports the use of keyfiles as an additional form of authentication (or the only form of authentication). Any file can be used as a keyfile, and a secure keyfile generator is provided for convenience. Not only can you use multiple keyfiles, but you can also require the correct order of keyfiles to be present for a successful decryption to occur. A particularly good use case of multiple keyfiles is creating a shared volume, where each person holds a keyfile, and all of them (and their keyfiles) must be present to decrypt the shared volume. By checking the "Require correct order" box and dropping your keyfile in last, you can also ensure that you'll always be the one clicking the Decrypt button. <strong>Use the keyfile generator whenever possible for the best security.</strong></li>
 	<li><strong>Paranoid mode</strong>: Using this mode will encrypt your data with both XChaCha20 and Serpent in a cascade fashion, and use HMAC-SHA3 to authenticate data instead of BLAKE2b. Argon2 parameters will be increased significantly as well. This is recommended for protecting top-secret files and provides the highest level of practical security attainable. For a hacker to break into your encrypted data, both the XChaCha20 cipher and the Serpent cipher must be broken, assuming you've chosen a good password. It's safe to say that in this mode, your files are impossible to crack. Keep in mind, however, that this mode is slower and isn't really necessary unless you're a government agent with classified data or a whistleblower under threat.</li>
 	<li><strong>Reed-Solomon</strong>: This feature is very useful if you are planning to archive important data on a cloud provider or external medium for a long time. If checked, ZeeCrypt will use the Reed-Solomon error correction code to add 8 extra bytes for every 128 bytes of data to prevent file corruption. This means that up to ~3% of your file can corrupt and ZeeCrypt will still be able to correct the errors and decrypt your files with no corruption. Of course, if your file corrupts very badly (e.g., you dropped your hard drive), ZeeCrypt won't be able to fully recover your files, but it will try its best to recover what it can. Note that this option will slow down encryption and decryption speeds significantly.</li>
@@ -88,7 +100,7 @@ No, it doesn't shred any files and just deletes them as your file manager would.
 
 **Is ZeeCrypt quantum-secure?**
 
-Yes, ZeeCrypt is secure against quantum computers. All of the cryptography used in ZeeCrypt works off of a private key, and private-key cryptography is considered to be resistant against all current and future developments, including quantum computers.
+Yes, for encryption. Password- and keyfile-protected volumes only use symmetric cryptography (XChaCha20, Serpent, Argon2, BLAKE2b, SHA-3), which is considered resistant to quantum computers. Public-key volumes combine X25519 with ML-KEM-768, a post-quantum algorithm standardized by NIST (FIPS 203), so they stay secure as long as either one holds. Sender signatures use Ed25519, which a large quantum computer could forge; that would let someone fake a "signed by", but not read or change your encrypted data.
 
 # License
 This project is licensed under **GPL-3.0-only**, as a fork of [Picocrypt](https://github.com/Picocrypt/Picocrypt) (also GPL-3.0-only).

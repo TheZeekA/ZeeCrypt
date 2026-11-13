@@ -1,6 +1,6 @@
 package main
 
-// Regression tests for the v2.1.0 audit fixes
+// Regression tests for the audit fixes released in v3.0.0
 
 import (
 	"archive/zip"

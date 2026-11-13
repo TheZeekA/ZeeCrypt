@@ -1,6 +1,6 @@
 # ZeeCrypt v3 feature plan
 
-Five features, plus one security item left open by the v2.1.0 audit fixes. Each one is modelled on how an established tool does it; the tool is named in each section.
+Five features, plus one security item left open by the audit fixes. Each one is modelled on how an established tool does it; the tool is named in each section.
 
 | # | Feature | Modelled on | Format change | Size |
 |---|---|---|---|---|
@@ -107,7 +107,7 @@ Correction to section 1 below: public keys and deniability don't conflict becaus
 **Check first:** the verb's command is `"…ZeeCrypt.exe" %1` with `%1` **unquoted**. Paths containing spaces are probably being split into several arguments. Reproduce on a real install before changing it, because the multi-select behaviour (`MultiSelectModel=Player`) depends on how the arguments are passed.
 
 **Phase A: classic menu (small, no signing needed)**
-1. CLI: add `--encrypt`, `--decrypt` and `--` (end of options) to `main()`. Parse only these, and treat every other argument as a path (the v2.1.0 fix removed `flag` so paths starting with `-` work; keep that). `--encrypt` on a `.pcv` file forces encryption, for example double-encrypting with a different key. `--decrypt` on a non-volume shows "not a ZeeCrypt volume".
+1. CLI: add `--encrypt`, `--decrypt` and `--` (end of options) to `main()`. Parse only these, and treat every other argument as a path (the audit fixes removed `flag` so paths starting with `-` work; keep that). `--encrypt` on a `.pcv` file forces encryption, for example double-encrypting with a different key. `--decrypt` on a non-volume shows "not a ZeeCrypt volume".
 2. WiX verbs:
    - `*\shell\ZeeCrypt.Encrypt` and `Directory\shell\ZeeCrypt.Encrypt`: "Encrypt with ZeeCrypt", hidden on `.pcv` files with an `AppliesTo` condition like `NOT System.FileExtension:=.pcv`.
    - `ZeeCrypt.pcv\shell\ZeeCrypt.Decrypt`, plus a `.pcv.*` chunk rule via `AppliesTo`: "Decrypt with ZeeCrypt".
