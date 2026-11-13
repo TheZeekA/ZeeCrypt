@@ -73,7 +73,8 @@ var version = "v2.0.0"
 
 // Written to the 5-byte header version field. It identifies the volume format,
 // not the app release, and must stay in "vX.YY" form: decryption checks it with
-// `^v\d\.\d{2}` (and `^v1\.\d{2}` for unwrapped deniable volumes).
+// `^v\d\.\d{2}` (and `^v[13]\.\d{2}` for unwrapped deniable volumes). It's
+// only written by the v2 code path; new volumes are v3 (src/volume).
 const headerVersion = "v1.52"
 
 var dpi float32
@@ -128,6 +129,7 @@ func verifyUpdate(sigFile []byte, version string, sum []byte) error {
 	}
 	return releasesig.Verify(pub, sigFile, "ZeeCrypt.exe", version, sum)
 }
+
 var updateError string
 
 // Input and output files
@@ -257,7 +259,7 @@ type encryptedZipReader struct {
 func (ezr *encryptedZipReader) Read(data []byte) (n int, err error) {
 	src := make([]byte, len(data))
 	n, err = ezr._r.Read(src)
-	if err == nil && n > 0 {
+	if n > 0 { // a reader may return data together with an error such as io.EOF
 		dst := make([]byte, n)
 		ezr._cipher.XORKeyStream(dst, src[:n])
 		if copy(data, dst) != n {
@@ -1757,7 +1759,7 @@ func work(prepared bool) {
 		}
 		fin.Close()
 		tmp, err = rsDecode(rs5, tmp)
-		if valid, _ := regexp.Match(`^v1\.\d{2}`, tmp); err != nil || !valid {
+		if valid, _ := regexp.Match(`^v[13]\.\d{2}`, tmp); err != nil || !valid {
 			broken(nil, nil, "Password is incorrect or the file is not a volume", true)
 			return
 		}
@@ -1768,686 +1770,705 @@ func work(prepared bool) {
 	progressInfo = ""
 	giu.Update()
 
-	// Subtract the header size from the total size if decrypting
-	stat, err := os.Stat(inputFile)
-	if err != nil {
-		removeTempInput()
-		resetUI()
-		accessDenied("Read")
-		return
-	}
-	total := stat.Size()
-	if mode == "decrypt" {
-		total -= 789
-	}
-
-	// Open input file in read-only mode
-	fin, err := os.Open(inputFile)
-	if err != nil {
-		removeTempInput()
-		resetUI()
-		accessDenied("Read")
-		return
-	}
-
-	// Setup output file
-	var fout *os.File
-
-	// If encrypting, generate values and write to file
-	if mode == "encrypt" {
-		popupStatus = "Generating values..."
-		giu.Update()
-
-		// Stores any errors when writing to file
-		errs := make([]error, 11)
-
-		// Make sure not to overwrite anything
-		_, err = os.Stat(outputFile)
-		if split && err == nil { // File already exists
-			fin.Close()
-			removeTempInput()
-			mainStatus = "Please remove " + filepath.Base(outputFile)
-			mainStatusColor = RED
-			return
-		}
-
-		// Create the output file
-		fout, err = os.Create(outputFile + ".incomplete")
-		if err != nil {
-			fin.Close()
-			removeTempInput()
-			accessDenied("Write")
-			return
-		}
-
-		// Set up cryptographic values
-		salt = make([]byte, 16)
-		hkdfSalt = make([]byte, 32)
-		serpentIV = make([]byte, 16)
-		nonce = make([]byte, 24)
-
-		// Write the volume format version to file
-		_, errs[0] = fout.Write(rsEncode(rs5, []byte(headerVersion)))
-
-		if len(comments) > 99999 {
-			fin.Close()
-			fout.Close()
-			removeTempInput()
-			os.Remove(fout.Name())
-			mainStatus = "Comment exceeds the maximum length of 99,999 characters"
-			mainStatusColor = RED
-			return
-		}
-
-		// Encode and write the comment length to file
-		commentsLength := []byte(fmt.Sprintf("%05d", len(comments)))
-		_, errs[1] = fout.Write(rsEncode(rs5, commentsLength))
-
-		// Encode the comment and write to file
-		for _, i := range []byte(comments) {
-			_, err := fout.Write(rsEncode(rs1, []byte{i}))
-			if err != nil {
-				errs[2] = err
+	// The core: new volumes use the v3 format (src/volume); older volumes
+	// are read by the v2 code below, which encryption also uses when tests
+	// set 'legacyFormat'
+	coreOK := false
+	if (mode == "encrypt" && !legacyFormat) || (mode == "decrypt" && isV3Volume(inputFile)) {
+		coreOK = workV3(func(r io.Reader) io.Reader {
+			if tempZipInUse { // the temporary zip is encrypted on disk
+				return &encryptedZipReader{_r: r, _cipher: tempZipCipherR}
 			}
-		}
-
-		// Configure flags and write to file
-		flags = make([]byte, 5)
-		if paranoid { // Paranoid mode selected
-			flags[0] = 1
-		}
-		if len(keyfiles) > 0 { // Keyfiles are being used
-			flags[1] = 1
-		}
-		if keyfileOrdered { // Order of keyfiles matter
-			flags[2] = 1
-		}
-		if reedsolo { // Full Reed-Solomon encoding is selected
-			flags[3] = 1
-		}
-		if total%int64(MiB) >= int64(MiB)-128 { // Reed-Solomon internals
-			flags[4] = 1
-		}
-		_, errs[3] = fout.Write(rsEncode(rs5, flags))
-
-		// Fill values with Go's CSPRNG
-		if _, err := rand.Read(salt); err != nil {
-			panic(err)
-		}
-		if _, err := rand.Read(hkdfSalt); err != nil {
-			panic(err)
-		}
-		if _, err := rand.Read(serpentIV); err != nil {
-			panic(err)
-		}
-		if _, err := rand.Read(nonce); err != nil {
-			panic(err)
-		}
-		if bytes.Equal(salt, make([]byte, 16)) {
-			panic(errors.New("fatal crypto/rand error"))
-		}
-		if bytes.Equal(hkdfSalt, make([]byte, 32)) {
-			panic(errors.New("fatal crypto/rand error"))
-		}
-		if bytes.Equal(serpentIV, make([]byte, 16)) {
-			panic(errors.New("fatal crypto/rand error"))
-		}
-		if bytes.Equal(nonce, make([]byte, 24)) {
-			panic(errors.New("fatal crypto/rand error"))
-		}
-
-		// Encode values with Reed-Solomon and write to file
-		_, errs[4] = fout.Write(rsEncode(rs16, salt))
-		_, errs[5] = fout.Write(rsEncode(rs32, hkdfSalt))
-		_, errs[6] = fout.Write(rsEncode(rs16, serpentIV))
-		_, errs[7] = fout.Write(rsEncode(rs24, nonce))
-
-		// Write placeholders for future use
-		_, errs[8] = fout.Write(make([]byte, 192))  // HMAC-SHA3-512 of the header
-		_, errs[9] = fout.Write(make([]byte, 96))   // Hash of keyfile key
-		_, errs[10] = fout.Write(make([]byte, 192)) // BLAKE2b/HMAC-SHA3 tag
-
-		for _, err := range errs {
+			return r
+		})
+	} else {
+		func() {
+			// Subtract the header size from the total size if decrypting
+			stat, err := os.Stat(inputFile)
 			if err != nil {
-				insufficientSpace(fin, fout)
 				removeTempInput()
-				os.Remove(fout.Name())
+				resetUI()
+				accessDenied("Read")
 				return
 			}
-		}
-	} else { // Decrypting, read values from file and decode
-		popupStatus = "Reading values..."
-		giu.Update()
-
-		// Stores any Reed-Solomon decoding errors
-		errs := make([]error, 10)
-
-		// Read a fixed-size header field, remembering if the file ended early
-		short := false
-		readField := func(n int) []byte {
-			b := make([]byte, n)
-			if _, err := io.ReadFull(fin, b); err != nil {
-				short = true
+			total := stat.Size()
+			if mode == "decrypt" {
+				total -= 789
 			}
-			return b
-		}
 
-		_, errs[0] = rsDecode(rs5, readField(15))
-
-		tmp, err := rsDecode(rs5, readField(15))
-		errs[1] = err
-
-		if valid, err := regexp.Match(`^\d{5}$`, tmp); !valid || err != nil {
-			broken(fin, nil, "Unable to read comments length", true)
-			return
-		}
-
-		commentsLength, _ := strconv.Atoi(string(tmp))
-		readField(commentsLength * 3)
-		total -= int64(commentsLength) * 3
-
-		flags, errs[2] = rsDecode(rs5, readField(15))
-		paranoid = flags[0] == 1
-		reedsolo = flags[3] == 1
-		padded = flags[4] == 1
-		if deniability {
-			keyfile = flags[1] == 1
-			keyfileOrdered = flags[2] == 1
-		}
-
-		salt, errs[3] = rsDecode(rs16, readField(48))
-		hkdfSalt, errs[4] = rsDecode(rs32, readField(96))
-		serpentIV, errs[5] = rsDecode(rs16, readField(48))
-		nonce, errs[6] = rsDecode(rs24, readField(72))
-		headerMACRef, errs[7] = rsDecode(rs64, readField(192))
-		keyfileHashRef, errs[8] = rsDecode(rs32, readField(96))
-		authTag, errs[9] = rsDecode(rs64, readField(192))
-
-		if short { // nothing to decrypt, even when forcing
-			broken(fin, nil, "The file is too short to be a volume", true)
-			return
-		}
-
-		// If there was an issue during decoding, the header is corrupted
-		for _, err := range errs {
+			// Open input file in read-only mode
+			fin, err := os.Open(inputFile)
 			if err != nil {
-				if keep { // If the user chooses to force decrypt
-					kept = true
-				} else {
-					broken(fin, nil, "The volume header is damaged", true)
+				removeTempInput()
+				resetUI()
+				accessDenied("Read")
+				return
+			}
+
+			// Setup output file
+			var fout *os.File
+
+			// If encrypting, generate values and write to file
+			if mode == "encrypt" {
+				popupStatus = "Generating values..."
+				giu.Update()
+
+				// Stores any errors when writing to file
+				errs := make([]error, 11)
+
+				// Make sure not to overwrite anything
+				_, err = os.Stat(outputFile)
+				if split && err == nil { // File already exists
+					fin.Close()
+					removeTempInput()
+					mainStatus = "Please remove " + filepath.Base(outputFile)
+					mainStatusColor = RED
 					return
 				}
-			}
-		}
-	}
 
-	// A deniable volume only reveals that it needs keyfiles once unwrapped
-	if mode == "decrypt" && keyfile && len(keyfiles) == 0 {
-		broken(fin, nil, "This volume requires keyfiles, please select them", true)
-		return
-	}
-
-	popupStatus = "Deriving key..."
-	giu.Update()
-
-	// Derive encryption keys and subkeys
-	var key []byte
-	if paranoid {
-		key = argon2.IDKey(
-			[]byte(password),
-			salt,
-			8,     // 8 passes
-			1<<20, // 1 GiB memory
-			8,     // 8 threads
-			32,    // 32-byte output key
-		)
-	} else {
-		key = argon2.IDKey(
-			[]byte(password),
-			salt,
-			4,
-			1<<20,
-			4,
-			32,
-		)
-	}
-	if bytes.Equal(key, make([]byte, 32)) {
-		panic(errors.New("fatal crypto/argon2 error"))
-	}
-
-	// If keyfiles are being used
-	if len(keyfiles) > 0 || keyfile {
-		popupStatus = "Reading keyfiles..."
-		giu.Update()
-
-		var duplicate bool
-		var err error
-		keyfileKey, duplicate, err = hashKeyfiles(keyfiles, keyfileOrdered)
-		if err != nil {
-			fin.Close()
-			removeTempInput()
-			if fout != nil {
-				fout.Close()
-				os.Remove(fout.Name())
-			}
-			accessDenied("Keyfile read")
-			return
-		}
-
-		// Unordered keyfiles are XORed together, so two with identical
-		// contents cancel out and silently stop protecting the volume.
-		// Only refuse when encrypting: older volumes may already use them.
-		if mode == "encrypt" && duplicate {
-			fin.Close()
-			removeTempInput()
-			fout.Close()
-			os.Remove(fout.Name())
-			mainStatus = "Duplicate keyfiles detected"
-			mainStatusColor = RED
-			return
-		}
-
-		// Only compared against volumes made before v2.1.0, which stored it
-		tmp := sha3.New256()
-		if _, err := tmp.Write(keyfileKey); err != nil {
-			panic(err)
-		}
-		keyfileHash = tmp.Sum(nil)
-	}
-
-	popupStatus = "Calculating values..."
-	giu.Update()
-
-	var passwordKey []byte // pre-keyfile key, only to recognize v1.50/1.51 volumes
-	if len(keyfiles) > 0 || keyfile {
-		// Prevent an even number of duplicate keyfiles
-		if bytes.Equal(keyfileKey, make([]byte, 32)) {
-			mainStatus = "Duplicate keyfiles detected"
-			mainStatusColor = RED
-			fin.Close()
-			removeTempInput()
-			if fout != nil {
-				fout.Close()
-				os.Remove(fout.Name())
-			}
-			return
-		}
-
-		// XOR the encryption key with the keyfile key
-		tmp := key
-		passwordKey = tmp
-		key = make([]byte, 32)
-		for i := range key {
-			key[i] = tmp[i] ^ keyfileKey[i]
-		}
-	}
-
-	// Authenticate the header's decryption parameters (flags, salts, IVs) with
-	// an HMAC keyed by a subkey independent from the data-encryption and
-	// data-MAC keys. A successful comparison proves both a correct password
-	// and keyfiles, and an untampered header, replacing the old bare hash of
-	// the key. The subkey is derived after the keyfile key is mixed in (v2.0.0):
-	// otherwise a keyfile-only volume's header MAC would depend only on an
-	// empty password, letting anyone forge it.
-	// The comment field is intentionally excluded (see the UI tooltip warning
-	// that comments aren't tamper-protected): it isn't re-derived from disk
-	// during decryption, so including it here could cause spurious failures.
-	headerMAC = computeHeaderMAC(key, hkdfSalt, flags, salt, hkdfSalt, serpentIV, nonce)
-
-	// Validate the password and/or keyfiles
-	if mode == "decrypt" {
-		keyCorrect := subtle.ConstantTimeCompare(headerMAC, headerMACRef) == 1
-
-		// Since v2.1.0 the keyfile hash isn't stored (it's all zeros): it let
-		// anyone test keyfile guesses at hash speed, separately from the
-		// password. The header MAC alone already verifies the keyfiles.
-		keyfileHashStored := !bytes.Equal(keyfileHashRef, make([]byte, 32))
-		keyfileCorrect := !keyfileHashStored ||
-			subtle.ConstantTimeCompare(keyfileHash, keyfileHashRef) == 1
-		incorrect := !keyCorrect
-		if keyfile || len(keyfiles) > 0 {
-			incorrect = !keyCorrect || !keyfileCorrect
-		}
-
-		// If something is incorrect
-		if incorrect {
-			if keep {
-				kept = true
-			} else {
-				// Wrong keyfiles also fail the header MAC, so check them first
-				if (keyfile || len(keyfiles) > 0) && !keyfileCorrect {
-					if keyfileOrdered {
-						mainStatus = "Incorrect keyfiles or ordering"
-					} else {
-						mainStatus = "Incorrect keyfiles"
-					}
-				} else if passwordKey != nil && subtle.ConstantTimeCompare(headerMACRef,
-					computeHeaderMAC(passwordKey, hkdfSalt, flags, salt, hkdfSalt, serpentIV, nonce)) == 1 {
-					// v2.0.0 changed the header MAC for keyfile volumes. The old
-					// MAC is only recognized for this message, never accepted:
-					// without a password anyone can forge it.
-					mainStatus = "This keyfile volume was made with ZeeCrypt v1.50/1.51 and can't be opened by this version"
-				} else if (keyfile || len(keyfiles) > 0) && !keyfileHashStored {
-					// Nothing separates a wrong password from wrong keyfiles anymore
-					mainStatus = "The password or keyfiles are incorrect, or the file has been tampered with"
-				} else {
-					mainStatus = "The provided password is incorrect, or the file has been tampered with"
+				// Create the output file
+				fout, err = os.Create(outputFile + ".incomplete")
+				if err != nil {
+					fin.Close()
+					removeTempInput()
+					accessDenied("Write")
+					return
 				}
-				broken(fin, nil, mainStatus, true)
-				return
-			}
-		}
 
-		// Create the output file for decryption
-		fout, err = os.Create(outputFile + ".incomplete")
-		if err != nil {
-			fin.Close()
-			removeTempInput()
-			accessDenied("Write")
-			return
-		}
-	}
+				// Set up cryptographic values
+				salt = make([]byte, 16)
+				hkdfSalt = make([]byte, 32)
+				serpentIV = make([]byte, 16)
+				nonce = make([]byte, 24)
 
-	done, counter := 0, 0
-	chacha, err := chacha20.NewUnauthenticatedCipher(key, nonce)
-	if err != nil {
-		panic(err)
-	}
+				// Write the volume format version to file
+				_, errs[0] = fout.Write(rsEncode(rs5, []byte(headerVersion)))
 
-	// Use HKDF-SHA3 to generate a subkey for the MAC
-	var mac hash.Hash
-	subkey := make([]byte, 32)
-	hkdf := hkdf.New(sha3.New256, key, hkdfSalt, nil)
-	if n, err := hkdf.Read(subkey); err != nil || n != 32 {
-		panic(errors.New("fatal hkdf.Read error"))
-	}
-	if paranoid {
-		mac = hmac.New(sha3.New512, subkey) // HMAC-SHA3
-	} else {
-		mac, err = blake2b.New512(subkey) // Keyed BLAKE2b
-		if err != nil {
-			panic(err)
-		}
-	}
-
-	// Generate another subkey for use as Serpent's key
-	serpentKey := make([]byte, 32)
-	if n, err := hkdf.Read(serpentKey); err != nil || n != 32 {
-		panic(errors.New("fatal hkdf.Read error"))
-	}
-	s, err := serpent.NewCipher(serpentKey)
-	if err != nil {
-		panic(err)
-	}
-	serpent := cipher.NewCTR(s, serpentIV)
-
-	// Start the main encryption process
-	canCancel = true
-	startTime := time.Now()
-	tempZip := encryptedZipReader{
-		_r:      fin,
-		_cipher: tempZipCipherR,
-	}
-	for {
-		if !working {
-			cancel(fin, fout)
-			removeTempInput()
-			os.Remove(fout.Name())
-			return
-		}
-
-		// Read in data from the file
-		var src []byte
-		if mode == "decrypt" && reedsolo {
-			src = make([]byte, MiB/128*136)
-		} else {
-			src = make([]byte, MiB)
-		}
-
-		var size int
-		if tempZipInUse {
-			size, err = tempZip.Read(src)
-		} else {
-			size, err = fin.Read(src)
-		}
-		if err != nil {
-			break
-		}
-		src = src[:size]
-		dst := make([]byte, len(src))
-
-		// Do the actual encryption
-		if mode == "encrypt" {
-			if paranoid {
-				serpent.XORKeyStream(dst, src)
-				copy(src, dst)
-			}
-
-			chacha.XORKeyStream(dst, src)
-			if _, err := mac.Write(dst); err != nil {
-				panic(err)
-			}
-
-			if reedsolo {
-				copy(src, dst)
-				dst = nil
-				// If a full MiB is available
-				if len(src) == MiB {
-					// Encode every chunk
-					for i := 0; i < MiB; i += 128 {
-						dst = append(dst, rsEncode(rs128, src[i:i+128])...)
-					}
-				} else {
-					// Encode the full chunks
-					chunks := math.Floor(float64(len(src)) / 128)
-					for i := 0; float64(i) < chunks; i++ {
-						dst = append(dst, rsEncode(rs128, src[i*128:(i+1)*128])...)
-					}
-
-					// Pad and encode the final partial chunk
-					dst = append(dst, rsEncode(rs128, pad(src[int(chunks*128):]))...)
+				if len(comments) > 99999 {
+					fin.Close()
+					fout.Close()
+					removeTempInput()
+					os.Remove(fout.Name())
+					mainStatus = "Comment exceeds the maximum length of 99,999 characters"
+					mainStatusColor = RED
+					return
 				}
-			}
-		} else { // Decryption
-			if reedsolo {
-				copy(dst, src)
-				src = nil
-				// If a complete 1 MiB block is available
-				if len(dst) == MiB/128*136 {
-					// Decode every chunk
-					for i := 0; i < MiB/128*136; i += 136 {
-						tmp, err := rsDecode(rs128, dst[i:i+136])
-						if err != nil {
-							if keep {
-								kept = true
-							} else {
-								broken(fin, fout, "The input file is irrecoverably damaged", false)
-								return
-							}
-						}
-						if i == MiB/128*136-136 && done+MiB/128*136 >= int(total) && padded {
-							tmp = unpad(tmp)
-						}
-						src = append(src, tmp...)
 
-						if !fastDecode && i%17408 == 0 {
-							progress, speed, eta = statify(int64(done+i), total, startTime)
-							progressInfo = fmt.Sprintf("%.2f%%", progress*100)
-							popupStatus = fmt.Sprintf("Repairing at %.2f MiB/s (ETA: %s)", speed, eta)
-							giu.Update()
-						}
+				// Encode and write the comment length to file
+				commentsLength := []byte(fmt.Sprintf("%05d", len(comments)))
+				_, errs[1] = fout.Write(rsEncode(rs5, commentsLength))
+
+				// Encode the comment and write to file
+				for _, i := range []byte(comments) {
+					_, err := fout.Write(rsEncode(rs1, []byte{i}))
+					if err != nil {
+						errs[2] = err
 					}
-				} else if len(dst) < 136 {
-					// A trailing fragment smaller than one encoded chunk can only
-					// come from a truncated or appended-to file
-					if keep {
-						kept = true
-					} else {
-						broken(fin, fout, "The input file is irrecoverably damaged", false)
+				}
+
+				// Configure flags and write to file
+				flags = make([]byte, 5)
+				if paranoid { // Paranoid mode selected
+					flags[0] = 1
+				}
+				if len(keyfiles) > 0 { // Keyfiles are being used
+					flags[1] = 1
+				}
+				if keyfileOrdered { // Order of keyfiles matter
+					flags[2] = 1
+				}
+				if reedsolo { // Full Reed-Solomon encoding is selected
+					flags[3] = 1
+				}
+				if total%int64(MiB) >= int64(MiB)-128 { // Reed-Solomon internals
+					flags[4] = 1
+				}
+				_, errs[3] = fout.Write(rsEncode(rs5, flags))
+
+				// Fill values with Go's CSPRNG
+				if _, err := rand.Read(salt); err != nil {
+					panic(err)
+				}
+				if _, err := rand.Read(hkdfSalt); err != nil {
+					panic(err)
+				}
+				if _, err := rand.Read(serpentIV); err != nil {
+					panic(err)
+				}
+				if _, err := rand.Read(nonce); err != nil {
+					panic(err)
+				}
+				if bytes.Equal(salt, make([]byte, 16)) {
+					panic(errors.New("fatal crypto/rand error"))
+				}
+				if bytes.Equal(hkdfSalt, make([]byte, 32)) {
+					panic(errors.New("fatal crypto/rand error"))
+				}
+				if bytes.Equal(serpentIV, make([]byte, 16)) {
+					panic(errors.New("fatal crypto/rand error"))
+				}
+				if bytes.Equal(nonce, make([]byte, 24)) {
+					panic(errors.New("fatal crypto/rand error"))
+				}
+
+				// Encode values with Reed-Solomon and write to file
+				_, errs[4] = fout.Write(rsEncode(rs16, salt))
+				_, errs[5] = fout.Write(rsEncode(rs32, hkdfSalt))
+				_, errs[6] = fout.Write(rsEncode(rs16, serpentIV))
+				_, errs[7] = fout.Write(rsEncode(rs24, nonce))
+
+				// Write placeholders for future use
+				_, errs[8] = fout.Write(make([]byte, 192))  // HMAC-SHA3-512 of the header
+				_, errs[9] = fout.Write(make([]byte, 96))   // Hash of keyfile key
+				_, errs[10] = fout.Write(make([]byte, 192)) // BLAKE2b/HMAC-SHA3 tag
+
+				for _, err := range errs {
+					if err != nil {
+						insufficientSpace(fin, fout)
+						removeTempInput()
+						os.Remove(fout.Name())
 						return
 					}
-				} else {
-					// Decode the full chunks
-					chunks := len(dst)/136 - 1
-					for i := range chunks {
-						tmp, err := rsDecode(rs128, dst[i*136:(i+1)*136])
-						if err != nil {
-							if keep {
-								kept = true
-							} else {
-								broken(fin, fout, "The input file is irrecoverably damaged", false)
-								return
-							}
-						}
-						src = append(src, tmp...)
+				}
+			} else { // Decrypting, read values from file and decode
+				popupStatus = "Reading values..."
+				giu.Update()
 
-						if !fastDecode && i%128 == 0 {
-							progress, speed, eta = statify(int64(done+i*136), total, startTime)
-							progressInfo = fmt.Sprintf("%.2f%%", progress*100)
-							popupStatus = fmt.Sprintf("Repairing at %.2f MiB/s (ETA: %s)", speed, eta)
-							giu.Update()
-						}
+				// Stores any Reed-Solomon decoding errors
+				errs := make([]error, 10)
+
+				// Read a fixed-size header field, remembering if the file ended early
+				short := false
+				readField := func(n int) []byte {
+					b := make([]byte, n)
+					if _, err := io.ReadFull(fin, b); err != nil {
+						short = true
 					}
+					return b
+				}
 
-					// Unpad and decode the final partial chunk
-					tmp, err := rsDecode(rs128, dst[int(chunks)*136:])
+				_, errs[0] = rsDecode(rs5, readField(15))
+
+				tmp, err := rsDecode(rs5, readField(15))
+				errs[1] = err
+
+				if valid, err := regexp.Match(`^\d{5}$`, tmp); !valid || err != nil {
+					broken(fin, nil, "Unable to read comments length", true)
+					return
+				}
+
+				commentsLength, _ := strconv.Atoi(string(tmp))
+				readField(commentsLength * 3)
+				total -= int64(commentsLength) * 3
+
+				flags, errs[2] = rsDecode(rs5, readField(15))
+				paranoid = flags[0] == 1
+				reedsolo = flags[3] == 1
+				padded = flags[4] == 1
+				if deniability {
+					keyfile = flags[1] == 1
+					keyfileOrdered = flags[2] == 1
+				}
+
+				salt, errs[3] = rsDecode(rs16, readField(48))
+				hkdfSalt, errs[4] = rsDecode(rs32, readField(96))
+				serpentIV, errs[5] = rsDecode(rs16, readField(48))
+				nonce, errs[6] = rsDecode(rs24, readField(72))
+				headerMACRef, errs[7] = rsDecode(rs64, readField(192))
+				keyfileHashRef, errs[8] = rsDecode(rs32, readField(96))
+				authTag, errs[9] = rsDecode(rs64, readField(192))
+
+				if short { // nothing to decrypt, even when forcing
+					broken(fin, nil, "The file is too short to be a volume", true)
+					return
+				}
+
+				// If there was an issue during decoding, the header is corrupted
+				for _, err := range errs {
 					if err != nil {
-						if keep {
+						if keep { // If the user chooses to force decrypt
 							kept = true
 						} else {
-							broken(fin, fout, "The input file is irrecoverably damaged", false)
+							broken(fin, nil, "The volume header is damaged", true)
 							return
 						}
 					}
-					src = append(src, unpad(tmp)...)
 				}
-				dst = make([]byte, len(src))
 			}
 
-			if _, err := mac.Write(src); err != nil {
-				panic(err)
+			// A deniable volume only reveals that it needs keyfiles once unwrapped
+			if mode == "decrypt" && keyfile && len(keyfiles) == 0 {
+				broken(fin, nil, "This volume requires keyfiles, please select them", true)
+				return
 			}
-			chacha.XORKeyStream(dst, src)
 
+			popupStatus = "Deriving key..."
+			giu.Update()
+
+			// Derive encryption keys and subkeys
+			var key []byte
 			if paranoid {
-				copy(src, dst)
-				serpent.XORKeyStream(dst, src)
+				key = argon2.IDKey(
+					[]byte(password),
+					salt,
+					8,     // 8 passes
+					1<<20, // 1 GiB memory
+					8,     // 8 threads
+					32,    // 32-byte output key
+				)
+			} else {
+				key = argon2.IDKey(
+					[]byte(password),
+					salt,
+					4,
+					1<<20,
+					4,
+					32,
+				)
 			}
-		}
-
-		// Write the data to output file
-		_, err = fout.Write(dst)
-		if err != nil {
-			insufficientSpace(fin, fout)
-			removeTempInput()
-			os.Remove(fout.Name())
-			return
-		}
-
-		// Update stats
-		if mode == "decrypt" && reedsolo {
-			done += MiB / 128 * 136
-		} else {
-			done += MiB
-		}
-		counter += MiB
-		progress, speed, eta = statify(int64(done), total, startTime)
-		progressInfo = fmt.Sprintf("%.2f%%", progress*100)
-		if mode == "encrypt" {
-			popupStatus = fmt.Sprintf("Encrypting at %.2f MiB/s (ETA: %s)", speed, eta)
-		} else {
-			if fastDecode {
-				popupStatus = fmt.Sprintf("Decrypting at %.2f MiB/s (ETA: %s)", speed, eta)
+			if bytes.Equal(key, make([]byte, 32)) {
+				panic(errors.New("fatal crypto/argon2 error"))
 			}
-		}
-		giu.Update()
 
-		// Change nonce/IV after 60 GiB to prevent overflow
-		if counter >= 60*GiB {
-			// ChaCha20
-			nonce = make([]byte, 24)
-			if n, err := hkdf.Read(nonce); err != nil || n != 24 {
-				panic(errors.New("fatal hkdf.Read error"))
+			// If keyfiles are being used
+			if len(keyfiles) > 0 || keyfile {
+				popupStatus = "Reading keyfiles..."
+				giu.Update()
+
+				var duplicate bool
+				var err error
+				keyfileKey, duplicate, err = hashKeyfiles(keyfiles, keyfileOrdered)
+				if err != nil {
+					fin.Close()
+					removeTempInput()
+					if fout != nil {
+						fout.Close()
+						os.Remove(fout.Name())
+					}
+					accessDenied("Keyfile read")
+					return
+				}
+
+				// Unordered keyfiles are XORed together, so two with identical
+				// contents cancel out and silently stop protecting the volume.
+				// Only refuse when encrypting: older volumes may already use them.
+				if mode == "encrypt" && duplicate {
+					fin.Close()
+					removeTempInput()
+					fout.Close()
+					os.Remove(fout.Name())
+					mainStatus = "Duplicate keyfiles detected"
+					mainStatusColor = RED
+					return
+				}
+
+				// Only compared against volumes made before v2.1.0, which stored it
+				tmp := sha3.New256()
+				if _, err := tmp.Write(keyfileKey); err != nil {
+					panic(err)
+				}
+				keyfileHash = tmp.Sum(nil)
 			}
-			chacha, err = chacha20.NewUnauthenticatedCipher(key, nonce)
+
+			popupStatus = "Calculating values..."
+			giu.Update()
+
+			var passwordKey []byte // pre-keyfile key, only to recognize v1.50/1.51 volumes
+			if len(keyfiles) > 0 || keyfile {
+				// Prevent an even number of duplicate keyfiles
+				if bytes.Equal(keyfileKey, make([]byte, 32)) {
+					mainStatus = "Duplicate keyfiles detected"
+					mainStatusColor = RED
+					fin.Close()
+					removeTempInput()
+					if fout != nil {
+						fout.Close()
+						os.Remove(fout.Name())
+					}
+					return
+				}
+
+				// XOR the encryption key with the keyfile key
+				tmp := key
+				passwordKey = tmp
+				key = make([]byte, 32)
+				for i := range key {
+					key[i] = tmp[i] ^ keyfileKey[i]
+				}
+			}
+
+			// Authenticate the header's decryption parameters (flags, salts, IVs) with
+			// an HMAC keyed by a subkey independent from the data-encryption and
+			// data-MAC keys. A successful comparison proves both a correct password
+			// and keyfiles, and an untampered header, replacing the old bare hash of
+			// the key. The subkey is derived after the keyfile key is mixed in (v2.0.0):
+			// otherwise a keyfile-only volume's header MAC would depend only on an
+			// empty password, letting anyone forge it.
+			// The comment field is intentionally excluded (see the UI tooltip warning
+			// that comments aren't tamper-protected): it isn't re-derived from disk
+			// during decryption, so including it here could cause spurious failures.
+			headerMAC = computeHeaderMAC(key, hkdfSalt, flags, salt, hkdfSalt, serpentIV, nonce)
+
+			// Validate the password and/or keyfiles
+			if mode == "decrypt" {
+				keyCorrect := subtle.ConstantTimeCompare(headerMAC, headerMACRef) == 1
+
+				// Since v2.1.0 the keyfile hash isn't stored (it's all zeros): it let
+				// anyone test keyfile guesses at hash speed, separately from the
+				// password. The header MAC alone already verifies the keyfiles.
+				keyfileHashStored := !bytes.Equal(keyfileHashRef, make([]byte, 32))
+				keyfileCorrect := !keyfileHashStored ||
+					subtle.ConstantTimeCompare(keyfileHash, keyfileHashRef) == 1
+				incorrect := !keyCorrect
+				if keyfile || len(keyfiles) > 0 {
+					incorrect = !keyCorrect || !keyfileCorrect
+				}
+
+				// If something is incorrect
+				if incorrect {
+					if keep {
+						kept = true
+					} else {
+						// Wrong keyfiles also fail the header MAC, so check them first
+						if (keyfile || len(keyfiles) > 0) && !keyfileCorrect {
+							if keyfileOrdered {
+								mainStatus = "Incorrect keyfiles or ordering"
+							} else {
+								mainStatus = "Incorrect keyfiles"
+							}
+						} else if passwordKey != nil && subtle.ConstantTimeCompare(headerMACRef,
+							computeHeaderMAC(passwordKey, hkdfSalt, flags, salt, hkdfSalt, serpentIV, nonce)) == 1 {
+							// v2.0.0 changed the header MAC for keyfile volumes. The old
+							// MAC is only recognized for this message, never accepted:
+							// without a password anyone can forge it.
+							mainStatus = "This keyfile volume was made with ZeeCrypt v1.50/1.51 and can't be opened by this version"
+						} else if (keyfile || len(keyfiles) > 0) && !keyfileHashStored {
+							// Nothing separates a wrong password from wrong keyfiles anymore
+							mainStatus = "The password or keyfiles are incorrect, or the file has been tampered with"
+						} else {
+							mainStatus = "The provided password is incorrect, or the file has been tampered with"
+						}
+						broken(fin, nil, mainStatus, true)
+						return
+					}
+				}
+
+				// Create the output file for decryption
+				fout, err = os.Create(outputFile + ".incomplete")
+				if err != nil {
+					fin.Close()
+					removeTempInput()
+					accessDenied("Write")
+					return
+				}
+			}
+
+			done, counter := 0, 0
+			chacha, err := chacha20.NewUnauthenticatedCipher(key, nonce)
 			if err != nil {
 				panic(err)
 			}
 
-			// Serpent
-			serpentIV = make([]byte, 16)
-			if n, err := hkdf.Read(serpentIV); err != nil || n != 16 {
+			// Use HKDF-SHA3 to generate a subkey for the MAC
+			var mac hash.Hash
+			subkey := make([]byte, 32)
+			hkdf := hkdf.New(sha3.New256, key, hkdfSalt, nil)
+			if n, err := hkdf.Read(subkey); err != nil || n != 32 {
 				panic(errors.New("fatal hkdf.Read error"))
 			}
-			serpent = cipher.NewCTR(s, serpentIV)
+			if paranoid {
+				mac = hmac.New(sha3.New512, subkey) // HMAC-SHA3
+			} else {
+				mac, err = blake2b.New512(subkey) // Keyed BLAKE2b
+				if err != nil {
+					panic(err)
+				}
+			}
 
-			// Reset counter to 0
-			counter = 0
-		}
-	}
-
-	progress = 0
-	progressInfo = ""
-	giu.Update()
-
-	if mode == "encrypt" {
-		popupStatus = "Writing values..."
-		giu.Update()
-
-		// Seek back to header and write important values
-		// The keyfile-hash field is left as zeros: see 'keyfileHashStored'
-		var errs [4]error
-		_, errs[0] = fout.Seek(int64(309+len(comments)*3), 0)
-		_, errs[1] = fout.Write(rsEncode(rs64, headerMAC))
-		_, errs[2] = fout.Write(rsEncode(rs32, make([]byte, 32)))
-		_, errs[3] = fout.Write(rsEncode(rs64, mac.Sum(nil)))
-		for _, err := range errs {
+			// Generate another subkey for use as Serpent's key
+			serpentKey := make([]byte, 32)
+			if n, err := hkdf.Read(serpentKey); err != nil || n != 32 {
+				panic(errors.New("fatal hkdf.Read error"))
+			}
+			s, err := serpent.NewCipher(serpentKey)
 			if err != nil {
-				insufficientSpace(fin, fout)
+				panic(err)
+			}
+			serpent := cipher.NewCTR(s, serpentIV)
+
+			// Start the main encryption process
+			canCancel = true
+			startTime := time.Now()
+			tempZip := encryptedZipReader{
+				_r:      fin,
+				_cipher: tempZipCipherR,
+			}
+			for {
+				if !working {
+					cancel(fin, fout)
+					removeTempInput()
+					os.Remove(fout.Name())
+					return
+				}
+
+				// Read in data from the file
+				var src []byte
+				if mode == "decrypt" && reedsolo {
+					src = make([]byte, MiB/128*136)
+				} else {
+					src = make([]byte, MiB)
+				}
+
+				var size int
+				if tempZipInUse {
+					size, err = tempZip.Read(src)
+				} else {
+					size, err = fin.Read(src)
+				}
+				if err != nil {
+					break
+				}
+				src = src[:size]
+				dst := make([]byte, len(src))
+
+				// Do the actual encryption
+				if mode == "encrypt" {
+					if paranoid {
+						serpent.XORKeyStream(dst, src)
+						copy(src, dst)
+					}
+
+					chacha.XORKeyStream(dst, src)
+					if _, err := mac.Write(dst); err != nil {
+						panic(err)
+					}
+
+					if reedsolo {
+						copy(src, dst)
+						dst = nil
+						// If a full MiB is available
+						if len(src) == MiB {
+							// Encode every chunk
+							for i := 0; i < MiB; i += 128 {
+								dst = append(dst, rsEncode(rs128, src[i:i+128])...)
+							}
+						} else {
+							// Encode the full chunks
+							chunks := math.Floor(float64(len(src)) / 128)
+							for i := 0; float64(i) < chunks; i++ {
+								dst = append(dst, rsEncode(rs128, src[i*128:(i+1)*128])...)
+							}
+
+							// Pad and encode the final partial chunk
+							dst = append(dst, rsEncode(rs128, pad(src[int(chunks*128):]))...)
+						}
+					}
+				} else { // Decryption
+					if reedsolo {
+						copy(dst, src)
+						src = nil
+						// If a complete 1 MiB block is available
+						if len(dst) == MiB/128*136 {
+							// Decode every chunk
+							for i := 0; i < MiB/128*136; i += 136 {
+								tmp, err := rsDecode(rs128, dst[i:i+136])
+								if err != nil {
+									if keep {
+										kept = true
+									} else {
+										broken(fin, fout, "The input file is irrecoverably damaged", false)
+										return
+									}
+								}
+								if i == MiB/128*136-136 && done+MiB/128*136 >= int(total) && padded {
+									tmp = unpad(tmp)
+								}
+								src = append(src, tmp...)
+
+								if !fastDecode && i%17408 == 0 {
+									progress, speed, eta = statify(int64(done+i), total, startTime)
+									progressInfo = fmt.Sprintf("%.2f%%", progress*100)
+									popupStatus = fmt.Sprintf("Repairing at %.2f MiB/s (ETA: %s)", speed, eta)
+									giu.Update()
+								}
+							}
+						} else if len(dst) < 136 {
+							// A trailing fragment smaller than one encoded chunk can only
+							// come from a truncated or appended-to file
+							if keep {
+								kept = true
+							} else {
+								broken(fin, fout, "The input file is irrecoverably damaged", false)
+								return
+							}
+						} else {
+							// Decode the full chunks
+							chunks := len(dst)/136 - 1
+							for i := range chunks {
+								tmp, err := rsDecode(rs128, dst[i*136:(i+1)*136])
+								if err != nil {
+									if keep {
+										kept = true
+									} else {
+										broken(fin, fout, "The input file is irrecoverably damaged", false)
+										return
+									}
+								}
+								src = append(src, tmp...)
+
+								if !fastDecode && i%128 == 0 {
+									progress, speed, eta = statify(int64(done+i*136), total, startTime)
+									progressInfo = fmt.Sprintf("%.2f%%", progress*100)
+									popupStatus = fmt.Sprintf("Repairing at %.2f MiB/s (ETA: %s)", speed, eta)
+									giu.Update()
+								}
+							}
+
+							// Unpad and decode the final partial chunk
+							tmp, err := rsDecode(rs128, dst[int(chunks)*136:])
+							if err != nil {
+								if keep {
+									kept = true
+								} else {
+									broken(fin, fout, "The input file is irrecoverably damaged", false)
+									return
+								}
+							}
+							src = append(src, unpad(tmp)...)
+						}
+						dst = make([]byte, len(src))
+					}
+
+					if _, err := mac.Write(src); err != nil {
+						panic(err)
+					}
+					chacha.XORKeyStream(dst, src)
+
+					if paranoid {
+						copy(src, dst)
+						serpent.XORKeyStream(dst, src)
+					}
+				}
+
+				// Write the data to output file
+				_, err = fout.Write(dst)
+				if err != nil {
+					insufficientSpace(fin, fout)
+					removeTempInput()
+					os.Remove(fout.Name())
+					return
+				}
+
+				// Update stats
+				if mode == "decrypt" && reedsolo {
+					done += MiB / 128 * 136
+				} else {
+					done += MiB
+				}
+				counter += MiB
+				progress, speed, eta = statify(int64(done), total, startTime)
+				progressInfo = fmt.Sprintf("%.2f%%", progress*100)
+				if mode == "encrypt" {
+					popupStatus = fmt.Sprintf("Encrypting at %.2f MiB/s (ETA: %s)", speed, eta)
+				} else {
+					if fastDecode {
+						popupStatus = fmt.Sprintf("Decrypting at %.2f MiB/s (ETA: %s)", speed, eta)
+					}
+				}
+				giu.Update()
+
+				// Change nonce/IV after 60 GiB to prevent overflow
+				if counter >= 60*GiB {
+					// ChaCha20
+					nonce = make([]byte, 24)
+					if n, err := hkdf.Read(nonce); err != nil || n != 24 {
+						panic(errors.New("fatal hkdf.Read error"))
+					}
+					chacha, err = chacha20.NewUnauthenticatedCipher(key, nonce)
+					if err != nil {
+						panic(err)
+					}
+
+					// Serpent
+					serpentIV = make([]byte, 16)
+					if n, err := hkdf.Read(serpentIV); err != nil || n != 16 {
+						panic(errors.New("fatal hkdf.Read error"))
+					}
+					serpent = cipher.NewCTR(s, serpentIV)
+
+					// Reset counter to 0
+					counter = 0
+				}
+			}
+
+			progress = 0
+			progressInfo = ""
+			giu.Update()
+
+			if mode == "encrypt" {
+				popupStatus = "Writing values..."
+				giu.Update()
+
+				// Seek back to header and write important values
+				// The keyfile-hash field is left as zeros: see 'keyfileHashStored'
+				var errs [4]error
+				_, errs[0] = fout.Seek(int64(309+len(comments)*3), 0)
+				_, errs[1] = fout.Write(rsEncode(rs64, headerMAC))
+				_, errs[2] = fout.Write(rsEncode(rs32, make([]byte, 32)))
+				_, errs[3] = fout.Write(rsEncode(rs64, mac.Sum(nil)))
+				for _, err := range errs {
+					if err != nil {
+						insufficientSpace(fin, fout)
+						removeTempInput()
+						os.Remove(fout.Name())
+						return
+					}
+				}
+			} else {
+				popupStatus = "Comparing values..."
+				giu.Update()
+
+				// Validate the authenticity of decrypted data
+				if subtle.ConstantTimeCompare(mac.Sum(nil), authTag) == 0 {
+					// Decrypt again but this time rebuilding the input data
+					if reedsolo && fastDecode {
+						fastDecode = false
+						fin.Close()
+						fout.Close()
+						os.Remove(fout.Name()) // unverified fast-pass output
+						work(true)
+						return
+					}
+
+					if keep {
+						kept = true
+					} else {
+						broken(fin, fout, "The input file is damaged or modified", false)
+						return
+					}
+				}
+			}
+
+			fin.Close()
+			if err := fout.Close(); err != nil {
+				insufficientSpace(nil, nil)
 				removeTempInput()
 				os.Remove(fout.Name())
 				return
 			}
-		}
-	} else {
-		popupStatus = "Comparing values..."
-		giu.Update()
 
-		// Validate the authenticity of decrypted data
-		if subtle.ConstantTimeCompare(mac.Sum(nil), authTag) == 0 {
-			// Decrypt again but this time rebuilding the input data
-			if reedsolo && fastDecode {
-				fastDecode = false
-				fin.Close()
-				fout.Close()
-				os.Remove(fout.Name()) // unverified fast-pass output
-				work(true)
+			if err := os.Rename(outputFile+".incomplete", outputFile); err != nil {
+				// Usually the file being replaced is open in another program
+				os.Remove(outputFile + ".incomplete")
+				removeTempInput()
+				mainStatus = "Couldn't save " + filepath.Base(outputFile) + " (is it open in another program?)"
+				mainStatusColor = RED
 				return
 			}
-
-			if keep {
-				kept = true
-			} else {
-				broken(fin, fout, "The input file is damaged or modified", false)
-				return
-			}
-		}
+			coreOK = true
+		}()
 	}
-
-	fin.Close()
-	if err := fout.Close(); err != nil {
-		insufficientSpace(nil, nil)
-		removeTempInput()
-		os.Remove(fout.Name())
-		return
-	}
-
-	if err := os.Rename(outputFile+".incomplete", outputFile); err != nil {
-		// Usually the file being replaced is open in another program
-		os.Remove(outputFile + ".incomplete")
-		removeTempInput()
-		mainStatus = "Couldn't save " + filepath.Base(outputFile) + " (is it open in another program?)"
-		mainStatusColor = RED
+	if !coreOK {
 		return
 	}
 

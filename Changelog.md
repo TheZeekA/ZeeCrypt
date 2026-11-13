@@ -1,5 +1,14 @@
 > History prior to the ZeeCrypt fork belongs to the original [Picocrypt](https://github.com/Picocrypt/Picocrypt) project. New entries for ZeeCrypt will be added above this note going forward.
 
+# v3.0.0 (Unreleased)
+<ul>
+	<li>✓ New volume format (v3). Volumes made with earlier versions still open, but v2.x and earlier can't open v3 volumes.</li>
+	<li>✓ Security: fixes PCC-004 (decrypt-then-verify), the last open finding from the Picocrypt audit. Data is split into chunks that are each authenticated before being decrypted, so damaged or modified data never reaches the output, and a volume can't be truncated or reordered without detection.</li>
+	<li>✓ Security: comments are now authenticated (still readable without the password, but changing them is detected).</li>
+	<li>✓ The data is encrypted under a random file key that the header wraps for each way of opening the volume, which is what makes public-key recipients and hardware keys possible.</li>
+	<li>✓ Reed-Solomon repair now happens per chunk, as the file is read, instead of in a second pass over the whole file.</li>
+</ul>
+
 # v2.1.0 (Unreleased)
 <ul>
 	<li>✓ Added: signed updates. Once the release key is set up (see <code>src/README.md</code>), every release's <code>ZeeCrypt.exe</code> and MSI carry an Ed25519 signature, and the updater refuses an update without a valid one. The signature covers the version, so an old release can't be served as a new one. Until then, updates are checked against their published checksum as before.</li>

@@ -12,11 +12,45 @@ ZeeCrypt uses the following cryptographic primitives:
 
 All primitives used are from the well-known [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) module.
 
-# Counter Overflow
-Since XChaCha20 has a max message size of 256 GiB, ZeeCrypt will use the HKDF-SHA3 mentioned above to generate a new nonce for XChaCha20 and a new IV for Serpent if the total encrypted data is more than 60 GiB. While this threshold can be increased up to 256 GiB, ZeeCrypt uses 60 GiB to prevent any edge cases with blocks or the counter used by Serpent.
+# Volume Format v3
+Since v3.0.0, new volumes use format v3 (`src/volume`). Volumes in the older formats still open (see "Header Format (v2)" below), but older versions of ZeeCrypt can't open v3 volumes.
 
-# Header Format
-A ZeeCrypt volume's header is encoded with Reed-Solomon by default since it is, after all, the most important part of the entire file. An encoded value will take up three times the size of the unencoded value.
+**A random file key.** The data is encrypted under a random 32-byte file key, not directly under the password. The header holds one or more *stanzas*, each of which wraps the file key for one way of opening the volume (the design of [age](https://age-encryption.org)). Decryption tries each stanza until one opens; no key IDs are stored. Stanza types:
+- **Password** (type 1): Argon2id(password) with the same parameters as before (4 passes / 1 GiB / 4 threads, or 8 / 1 GiB / 8 in paranoid mode), combined with the keyfile key if keyfiles are used, through HKDF-SHA3. The file key is wrapped with ChaCha20-Poly1305 under that key. Body: Argon2 salt (16) | wrapped key (48).
+- **Recipient** (type 2) and **FIDO2** (type 3): see below.
+
+**Keys.** HKDF-SHA3-256 (salt: a random 32-byte value in the header) derives from the file key: the header MAC key, the XChaCha20 key, the Serpent key and the chunk MAC key.
+
+**Header MAC.** HMAC-SHA3-256 over the version, comments, flags and every stanza, each length-prefixed. Unlike v2, the comments are authenticated: they're still readable without the password, but can't be changed without detection. Stanzas can't be added, removed or reordered.
+
+**Chunks (closes PCC-004).** The data is split into chunks of 1 MiB − 32 bytes of plaintext (1 MiB − 160 with Reed-Solomon). For chunk *i*:
+```
+ciphertext = XChaCha20(key, nonce = 0^16 | i)( Serpent-CTR(key, iv = i | 0^8)(plaintext) )   Serpent only in paranoid mode
+tag        = MAC(i | last | ciphertext)          keyed BLAKE2b-256, or HMAC-SHA3-256 in paranoid mode
+stored     = ciphertext | tag                    with Reed-Solomon: PKCS#7-padded to 128 bytes, then 128+8 encoded
+```
+Each chunk's tag is checked **before** it's decrypted or written, so damaged or modified data never reaches the output (unless "Force decrypt" is on). The *last* bit marks the final chunk, so a volume can't be cut short at a chunk boundary, and the index stops chunks being reordered. With Reed-Solomon, a chunk is first checked as stored and only repaired if that fails, so repair now happens per chunk instead of in a second pass over the whole file.
+
+**Layout.** The first four fields are the same as v2, so comments and flags read the same way for every version:
+
+| Encoded size | Decoded size | Description
+| ------------ | ------------ | -----------
+| 15           | 5            | Volume format version, "v3.00"
+| 15           | 5            | Length of comments, zero-padded to 5 bytes
+| 3C           | C            | Comments
+| 15           | 5            | Flags: paranoid, keyfiles, keyfile order, Reed-Solomon, signed
+| 15           | 5            | Header block length L (big-endian)
+| 3·⌈L/32⌉·32  | L            | Header block, Reed-Solomon encoded in 32-byte units: HKDF salt (32), stanza count (2), stanzas (type 1, length 4, body), header MAC (32)
+| 384          | 128          | Signature block, only if signed (see "Sender Signatures")
+|              |              | Data chunks
+
+Deniability works as before: the whole v3 volume is wrapped in a headerless XChaCha20 layer keyed by Argon2id(password).
+
+# Counter Overflow (v2)
+In the v2 format, since XChaCha20 has a max message size of 256 GiB, ZeeCrypt will use the HKDF-SHA3 mentioned above to generate a new nonce for XChaCha20 and a new IV for Serpent if the total encrypted data is more than 60 GiB. While this threshold can be increased up to 256 GiB, ZeeCrypt uses 60 GiB to prevent any edge cases with blocks or the counter used by Serpent.
+
+# Header Format (v2)
+Volumes made before v3.0.0 (header version v1.50 to v1.52) use this format; ZeeCrypt still reads it. Its header is encoded with Reed-Solomon by default since it is, after all, the most important part of the entire file. An encoded value will take up three times the size of the unencoded value.
 
 **All offsets and sizes below are in bytes.**
 | Offset | Encoded size | Decoded size | Description
@@ -64,10 +98,10 @@ Plausible deniability in ZeeCrypt is achieved by simply re-encrypting the volume
 [argon2 salt][xchacha20 nonce][encrypted stream of bytes]
 ```
 
-# Known Limitation: Decrypt-Then-Verify
-When decrypting, ZeeCrypt computes the data's authentication tag incrementally as it decrypts each block, and only compares it against the stored tag after the entire file has been processed (this is PCC-004 from the Picocrypt security audit). A true fix requires reading the input twice — once to verify the tag before decrypting anything — which touches the Reed-Solomon repair path, the deniability temp-zip decryption wrapper, and split/recombine handling all at once, and was judged too risky to rewrite without a way to test it end-to-end.
+# Decrypt-Then-Verify (v2 volumes only)
+Fixed in format v3, which authenticates each chunk before decrypting it (see "Volume Format v3"). For v2 volumes, ZeeCrypt computes the data's authentication tag incrementally as it decrypts each block, and only compares it against the stored tag after the entire file has been processed (this is PCC-004 from the Picocrypt security audit). A true fix requires reading the input twice — once to verify the tag before decrypting anything — which touches the Reed-Solomon repair path, the deniability temp-zip decryption wrapper, and split/recombine handling all at once, and was judged too risky to rewrite without a way to test it end-to-end.
 
-In practice, the impact is limited: decrypted output is always written to a `.incomplete` temp file and is only renamed to the final output path after the tag check succeeds, so tampered/attacker-controlled plaintext is never exposed to you as a finished, trusted file. The residual risk is a low-severity, side-channel-class theoretical concern (per the original audit) from decrypting attacker-controlled ciphertext into memory before the tag comparison completes. This remains open for a future release.
+For those volumes the impact is limited: decrypted output is always written to a `.incomplete` temp file and is only renamed to the final output path after the tag check succeeds, so tampered/attacker-controlled plaintext is never exposed to you as a finished, trusted file. The residual risk is a low-severity, side-channel-class theoretical concern (per the original audit) from decrypting attacker-controlled ciphertext into memory before the tag comparison completes. To get rid of it for an old volume, decrypt it and encrypt it again.
 
 # Just Read the Code
-ZeeCrypt is a very simple tool and only has one source file. The source Go file is just 2K lines and a lot of the code is dealing with the UI. The core cryptography code is only about 1K lines of code, and even so, a lot of that code deals with the UI and other features of ZeeCrypt. So if you need more information about how ZeeCrypt works, just read the code. It's not long, and it is well commented and will explain what happens under the hood better than a document can.
+The v3 format lives in `src/volume` (no UI code), the app in `src/ZeeCrypt.go`, which still contains the v2 reader. So if you need more information about how ZeeCrypt works, just read the code. It's not long, and it is well commented and will explain what happens under the hood better than a document can.

@@ -166,7 +166,7 @@ func TestMalformedCommentLengthRejected(t *testing.T) {
 	dir := t.TempDir()
 	in := filepath.Join(dir, "m.bin")
 	writeFile(t, in, randBytes(t, 1000))
-	vol, st := encrypt(t, []string{in}, "pw", nil, nil)
+	vol, st := encrypt(t, []string{in}, "pw", nil, func() { legacyFormat = true }) // v2 reader; v3: TestV3HeaderFieldsChecked
 	mustStatus(t, st, "Completed")
 	orig, err := os.ReadFile(vol)
 	if err != nil {

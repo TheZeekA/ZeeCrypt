@@ -26,6 +26,7 @@ func setup() {
 	working = false
 	fastDecode = true
 	showProgress = false
+	legacyFormat = false
 }
 
 func waitScan() {
