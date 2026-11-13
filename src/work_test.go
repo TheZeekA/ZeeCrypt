@@ -65,7 +65,7 @@ func TestMultiFileZipKeepsInputs(t *testing.T) {
 	a, b := filepath.Join(dir, "a.txt"), filepath.Join(dir, "b.txt")
 	writeFile(t, a, []byte("aaa"))
 	writeFile(t, b, []byte("bbb"))
-	vol, st := encrypt(t, []string{a, b}, "pw", nil, func() { compress = true })
+	vol, st := encrypt(t, []string{a, b}, "pw", nil, nil)
 	mustStatus(t, st, "Completed")
 	mustContent(t, a, []byte("aaa"))
 	mustContent(t, b, []byte("bbb"))

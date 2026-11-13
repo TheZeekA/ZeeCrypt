@@ -2,6 +2,7 @@
 
 # v2.1.0 (Unreleased)
 <ul>
+	<li>✓ Added: compression levels (Fast, Balanced, Maximum) using zstd, several times faster than the old Deflate at a better ratio. Compressed files go into a <code>.tar.zst</code> archive, which Windows 11 Explorer and 7-Zip open natively; without compression a plain zip is still used. Auto unzip extracts <code>.tar.zst</code> archives too, rejecting links, devices and paths outside the folder.</li>
 	<li>✓ Added: "Encrypt with ZeeCrypt" (files and folders) and "Decrypt with ZeeCrypt" (<code>.pcv</code> files) in Explorer's right-click menu, next to "Open with ZeeCrypt". "Encrypt" also works on a <code>.pcv</code> file from the command line (<code>--encrypt</code>), to encrypt a volume again with another key.</li>
 	<li>✓ Added: ZeeCrypt now runs as a single window. Opening more files from Explorer while it's open sends them to the existing window, and selecting several files in Explorer opens them together instead of in separate windows.</li>
 	<li>✓ Fixed: the installer's right-click entries passed the path unquoted, so paths containing spaces could open the wrong thing.</li>

@@ -12,7 +12,6 @@ https://github.com/TheZeekA/ZeeCrypt
 */
 
 import (
-	"archive/zip"
 	"bytes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -759,8 +758,10 @@ func draw() {
 						giu.Tooltip("Provides the highest level of security attainable"),
 						giu.Dummy(-170, 0),
 						giu.Style().SetDisabled(recursively || !(len(allFiles) > 1 || len(onlyFolders) > 0)).To(
-							giu.Checkbox("Compress files", &compress),
-							giu.Tooltip("Compress files with Deflate before encrypting"),
+							giu.Combo("##compress", compressLevels[compressLevel], compressLevels, &compressLevel).Size(150).OnChange(func() {
+								setCompression(compressLevel)
+							}),
+							giu.Tooltip("Compress into a .tar.zst archive (opens in Windows 11 Explorer and 7-Zip)"),
 						),
 					).Build()
 
@@ -778,7 +779,7 @@ func draw() {
 						giu.Dummy(-170, 0),
 						giu.Style().SetDisabled(!(len(allFiles) > 1 || len(onlyFolders) > 0)).To(
 							giu.Checkbox("Recursively", &recursively).OnChange(func() {
-								compress = false
+								setCompression(0)
 							}),
 							giu.Tooltip("Warning: only use this if you know what it does!"),
 						),
@@ -807,18 +808,18 @@ func draw() {
 					).Build()
 
 					giu.Row(
-						giu.Style().SetDisabled(!strings.HasSuffix(inputFile, ".zip.pcv")).To(
+						giu.Style().SetDisabled(!isArchiveVolume(inputFile)).To(
 							giu.Checkbox("Auto unzip", &autoUnzip).OnChange(func() {
 								if !autoUnzip {
 									sameLevel = false
 								}
 							}),
-							giu.Tooltip("Extract .zip upon decryption (may overwrite files)"),
+							giu.Tooltip("Extract the .zip or .tar.zst after decryption (may overwrite files)"),
 						),
 						giu.Dummy(-170, 0),
 						giu.Style().SetDisabled(!autoUnzip).To(
 							giu.Checkbox("Same level", &sameLevel),
-							giu.Tooltip("Extract .zip contents to same folder as volume"),
+							giu.Tooltip("Extract the contents to the same folder as the volume"),
 						),
 					).Build()
 				}
@@ -862,7 +863,7 @@ func draw() {
 						// Prefill the filename
 						tmp := strings.TrimSuffix(filepath.Base(outputFile), ".pcv")
 						f.SetInitFilename(strings.TrimSuffix(tmp, filepath.Ext(tmp)))
-						if mode == "encrypt" && (len(allFiles) > 1 || len(onlyFolders) > 0 || compress) {
+						if mode == "encrypt" && (len(allFiles) > 1 || len(onlyFolders) > 0) {
 							f.SetInitFilename("encrypted-" + strconv.Itoa(int(time.Now().Unix())))
 						}
 
@@ -1410,7 +1411,8 @@ func work(prepared bool) {
 		// (e.g. Explorer search results)
 		namer := newZipNamer(onlyFiles, onlyFolders)
 
-		// Open a temporary .zip for writing
+		// Open a temporary archive for writing
+		outputFile = withArchiveExt(outputFile)
 		inputFile = strings.TrimSuffix(outputFile, ".pcv") + ".tmp"
 		if _, err := os.Stat(inputFile); err == nil {
 			mainStatus = "Please remove " + filepath.Base(inputFile)
@@ -1424,28 +1426,39 @@ func work(prepared bool) {
 		}
 		tempZipFile = inputFile
 
-		// Add each file to the .zip
+		// Add each file to the archive (.zip, or .tar.zst when compressing)
 		tempZip := encryptedZipWriter{
 			_w:      file,
 			_cipher: tempZipCipherW,
 		}
 		tempZipInUse = true
-		writer := zip.NewWriter(&tempZip)
+		writer, err := newArchiveWriter(&tempZip)
+		if err != nil {
+			file.Close()
+			os.Remove(inputFile)
+			resetUI()
+			mainStatus = "Failed to start compressing"
+			mainStatusColor = RED
+			return
+		}
 		compressStart = time.Now()
+		archiveFail := func(status string) {
+			writer.Close()
+			file.Close()
+			os.Remove(inputFile)
+			resetUI()
+			mainStatus = status
+			mainStatusColor = RED
+		}
 
 		// Folder entries first, so empty folders survive the round trip
 		for _, dir := range allDirs {
-			header := &zip.FileHeader{Name: namer.dirName(dir), Method: zip.Store}
+			var modified time.Time
 			if stat, err := os.Stat(dir); err == nil {
-				header.Modified = stat.ModTime()
+				modified = stat.ModTime()
 			}
-			if _, err := writer.CreateHeader(header); err != nil {
-				writer.Close()
-				file.Close()
-				os.Remove(inputFile)
-				resetUI()
-				mainStatus = "Failed to writer.CreateHeader"
-				mainStatusColor = RED
+			if err := writer.addDir(namer.dirName(dir), modified); err != nil {
+				archiveFail("Failed to add a folder to the archive")
 				return
 			}
 		}
@@ -1454,44 +1467,15 @@ func work(prepared bool) {
 			progressInfo = fmt.Sprintf("%d/%d", i+1, len(files))
 			giu.Update()
 
-			// Create file info header (size, last modified, etc.)
+			// Size, last modified, etc.
 			stat, err := os.Stat(path)
 			if err != nil {
-				writer.Close()
-				file.Close()
-				os.Remove(inputFile)
-				resetUI()
-				mainStatus = "Failed to stat input files"
-				mainStatusColor = RED
+				archiveFail("Failed to stat input files")
 				return
 			}
-			header, err := zip.FileInfoHeader(stat)
+			entry, err := writer.addFile(namer.fileName(path), stat)
 			if err != nil {
-				writer.Close()
-				file.Close()
-				os.Remove(inputFile)
-				resetUI()
-				mainStatus = "Failed to create zip.FileInfoHeader"
-				mainStatusColor = RED
-				return
-			}
-			header.Name = namer.fileName(path)
-
-			if compress {
-				header.Method = zip.Deflate
-			} else {
-				header.Method = zip.Store
-			}
-
-			// Open the file for reading
-			entry, err := writer.CreateHeader(header)
-			if err != nil {
-				writer.Close()
-				file.Close()
-				os.Remove(inputFile)
-				resetUI()
-				mainStatus = "Failed to writer.CreateHeader"
-				mainStatusColor = RED
+				archiveFail("Failed to add a file to the archive")
 				return
 			}
 			fin, err := os.Open(path)
@@ -1504,10 +1488,12 @@ func work(prepared bool) {
 				return
 			}
 
-			// Use a passthrough to catch compression progress
+			// Use a passthrough to catch compression progress. Copy exactly
+			// the size recorded in the entry's header (a tar entry can't hold
+			// more or less).
 			passthrough := &compressorProgress{Reader: fin}
 			buf := make([]byte, MiB)
-			_, err = io.CopyBuffer(entry, passthrough, buf)
+			n, err := io.CopyBuffer(entry, io.LimitReader(passthrough, stat.Size()), buf)
 			fin.Close()
 
 			if err != nil {
@@ -1521,6 +1507,11 @@ func work(prepared bool) {
 				writer.Close()
 				cancel(nil, file)
 				os.Remove(inputFile)
+				return
+			}
+
+			if n != stat.Size() {
+				archiveFail(filepath.Base(path) + " changed while it was being read")
 				return
 			}
 		}
@@ -2900,6 +2891,7 @@ func resetUI() {
 	splitSelected = 1
 	recombine = false
 	compress = false
+	compressLevel = 0
 	delete = false
 	autoUnzip = false
 	sameLevel = false
@@ -3111,11 +3103,13 @@ func (z *zipNamer) fileName(path string) string {
 func outputNameFromDialog(file string) string {
 	var ext string
 	if mode == "encrypt" {
-		if len(allFiles) > 1 || len(onlyFolders) > 0 || compress {
-			ext = ".zip.pcv"
+		if len(allFiles) > 1 || len(onlyFolders) > 0 {
+			ext = archiveExt() + ".pcv"
 		} else {
 			ext = filepath.Ext(inputFile) + ".pcv"
 		}
+	} else if strings.HasSuffix(inputFile, ".tar.zst.pcv") {
+		ext = ".tar.zst"
 	} else if strings.HasSuffix(inputFile, ".zip.pcv") {
 		ext = ".zip"
 	} else {
@@ -3392,111 +3386,6 @@ func diskFree(dir string) int64 {
 		return -1
 	}
 	return int64(free)
-}
-
-func unpackArchive(zipPath string) error {
-	reader, err := zip.OpenReader(zipPath)
-	if err != nil {
-		return err
-	}
-	defer reader.Close()
-
-	// Check every entry before writing anything, so a bad archive doesn't
-	// leave a half-extracted folder behind
-	var totalSize int64
-	for _, f := range reader.File {
-		if !zipEntryPathOK(f.Name) {
-			return errors.New("potentially malicious zip item path")
-		}
-		totalSize += int64(f.UncompressedSize64)
-	}
-
-	var extractDir string
-	if sameLevel {
-		extractDir = filepath.Dir(zipPath)
-	} else {
-		extractDir = filepath.Join(filepath.Dir(zipPath), strings.TrimSuffix(filepath.Base(zipPath), ".zip"))
-	}
-
-	// archive/zip refuses to read past an entry's declared size, so this
-	// also stops a "zip bomb" from filling the disk
-	if free := diskFree(filepath.Dir(zipPath)); free >= 0 && totalSize > free {
-		return errors.New("not enough disk space to unzip")
-	}
-
-	var done int64
-	startTime := time.Now()
-
-	for _, f := range reader.File {
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(filepath.Join(extractDir, filepath.FromSlash(f.Name)), 0700); err != nil {
-				return err
-			}
-		}
-	}
-
-	extract := func(i int, f *zip.File) error {
-		outPath := filepath.Join(extractDir, filepath.FromSlash(f.Name))
-		if err := os.MkdirAll(filepath.Dir(outPath), 0700); err != nil {
-			return err
-		}
-
-		fileInArchive, err := f.Open()
-		if err != nil {
-			return err
-		}
-		defer fileInArchive.Close()
-
-		dstFile, err := os.Create(outPath)
-		if err != nil {
-			return err
-		}
-
-		// Read from zip in chunks to update progress
-		buffer := make([]byte, MiB)
-		for {
-			n, readErr := fileInArchive.Read(buffer)
-			if n > 0 {
-				if _, err := dstFile.Write(buffer[:n]); err != nil {
-					dstFile.Close()
-					os.Remove(outPath)
-					return err
-				}
-				done += int64(n)
-				progress, speed, eta = statify(done, totalSize, startTime)
-				progressInfo = fmt.Sprintf("%d/%d", i+1, len(reader.File))
-				popupStatus = fmt.Sprintf("Unpacking at %.2f MiB/s (ETA: %s)", speed, eta)
-				giu.Update()
-			}
-			if readErr == io.EOF {
-				break
-			}
-			if readErr != nil {
-				dstFile.Close()
-				os.Remove(outPath)
-				return readErr
-			}
-		}
-		if err := dstFile.Close(); err != nil {
-			os.Remove(outPath)
-			return err
-		}
-		if !f.Modified.IsZero() {
-			os.Chtimes(outPath, f.Modified, f.Modified)
-		}
-		return nil
-	}
-
-	for i, f := range reader.File {
-		if f.FileInfo().IsDir() {
-			continue
-		}
-		if err := extract(i, f); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // setLightTheme overrides giu's built-in dark theme with a light one.
