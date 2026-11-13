@@ -10,6 +10,7 @@ require (
 	github.com/Picocrypt/serpent v0.0.0-20240830233833-9ad6ab254fd7
 	github.com/Picocrypt/zxcvbn-go v0.0.0-20250412183938-d59695960527
 	golang.org/x/crypto v0.40.0
+	golang.org/x/sys v0.34.0
 )
 
 require (
@@ -18,6 +19,7 @@ require (
 	github.com/Picocrypt/mainthread v0.0.0-20240831004314-496f638392b3 // indirect
 	github.com/Picocrypt/w32 v0.0.0-20240831001500-1183079d4d57 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
+	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/tc-hib/go-winres v0.3.3 // indirect
@@ -25,7 +27,6 @@ require (
 	github.com/urfave/cli/v2 v2.25.7 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	golang.org/x/image v0.12.0 // indirect
-	golang.org/x/sys v0.34.0 // indirect
 )
 
 tool github.com/tc-hib/go-winres

@@ -109,7 +109,7 @@ func TestKeyfileHashNotStored(t *testing.T) {
 	data := randBytes(t, 3000)
 	writeFile(t, in, data)
 	writeFile(t, kf, randBytes(t, 32))
-	vol, st := encrypt(t, []string{in}, "pw", []string{kf}, nil)
+	vol, st := encrypt(t, []string{in}, "pw", []string{kf}, func() { legacyFormat = true }) // v3 has no such field
 	mustStatus(t, st, "Completed")
 	os.Remove(in)
 

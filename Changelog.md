@@ -1,7 +1,24 @@
 > History prior to the ZeeCrypt fork belongs to the original [Picocrypt](https://github.com/Picocrypt/Picocrypt) project. New entries for ZeeCrypt will be added above this note going forward.
 
+# v3.0.0 (Unreleased)
+<ul>
+	<li>✓ Added: security keys as a second factor. A volume can require a FIDO2 key (hmac-secret, through Windows' built-in WebAuthn) as well as its password. Needs Windows 11 22H2+ and a key with a PIN.</li>
+	<li>✓ Added: public-key encryption. Create an identity (a key pair in a password-protected file), share your public key, keep contacts, and encrypt to one or more people's public keys, with or without a password. Keys combine X25519 with ML-KEM-768 (post-quantum).</li>
+	<li>✓ Added: sender signatures. Volumes can be signed with your identity; decryption shows who signed (a contact's name, or an unknown key's fingerprint) and warns about invalid signatures. The signature is only visible to recipients and can't be carried over to a re-encrypted copy.</li>
+	<li>✓ New volume format (v3). Volumes made with earlier versions still open, but v2.x and earlier can't open v3 volumes.</li>
+	<li>✓ Security: fixes PCC-004 (decrypt-then-verify), the last open finding from the Picocrypt audit. Data is split into chunks that are each authenticated before being decrypted, so damaged or modified data never reaches the output, and a volume can't be truncated or reordered without detection.</li>
+	<li>✓ Security: comments are now authenticated (still readable without the password, but changing them is detected).</li>
+	<li>✓ The data is encrypted under a random file key that the header wraps for each way of opening the volume, which is what makes public-key recipients and hardware keys possible.</li>
+	<li>✓ Reed-Solomon repair now happens per chunk, as the file is read, instead of in a second pass over the whole file.</li>
+</ul>
+
 # v2.1.0 (Unreleased)
 <ul>
+	<li>✓ Added: signed updates. Once the release key is set up (see <code>src/README.md</code>), every release's <code>ZeeCrypt.exe</code> and MSI carry an Ed25519 signature, and the updater refuses an update without a valid one. The signature covers the version, so an old release can't be served as a new one. Until then, updates are checked against their published checksum as before.</li>
+	<li>✓ Added: compression levels (Fast, Balanced, Maximum) using zstd, several times faster than the old Deflate at a better ratio. Compressed files go into a <code>.tar.zst</code> archive, which Windows 11 Explorer and 7-Zip open natively; without compression a plain zip is still used. Auto unzip extracts <code>.tar.zst</code> archives too, rejecting links, devices and paths outside the folder.</li>
+	<li>✓ Added: "Encrypt with ZeeCrypt" (files and folders) and "Decrypt with ZeeCrypt" (<code>.pcv</code> files) in Explorer's right-click menu, next to "Open with ZeeCrypt". "Encrypt" also works on a <code>.pcv</code> file from the command line (<code>--encrypt</code>), to encrypt a volume again with another key.</li>
+	<li>✓ Added: ZeeCrypt now runs as a single window. Opening more files from Explorer while it's open sends them to the existing window, and selecting several files in Explorer opens them together instead of in separate windows.</li>
+	<li>✓ Fixed: the installer's right-click entries passed the path unquoted, so paths containing spaces could open the wrong thing.</li>
 	<li>✓ Security: the header no longer stores a SHA3-256 hash of the keyfile key (the field is written as zeros). It let anyone test keyfile guesses at hash speed, independently of the password; the header HMAC already verifies keyfiles. As a result, a wrong password and wrong keyfiles now show the same message. Volumes from earlier versions still open. <strong>v2.0.0 can't open keyfile volumes made by this version</strong> (it reports "Incorrect keyfiles").</li>
 	<li>✓ Security: deniability now requires a password. Its layer is keyed by the password alone, so with keyfiles only, anyone could remove it and reveal the volume header.</li>
 	<li>✓ Security: unordered keyfiles with identical contents (e.g. a copy under another name) are refused when encrypting. They're XORed together, so they cancelled out and silently stopped protecting the volume.</li>

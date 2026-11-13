@@ -46,7 +46,7 @@ jobs:
     - name: Test
       run: |
         cd src
-        go test .
+        go test ./...
       env:
         CGO_ENABLED: 1
 
@@ -82,12 +82,39 @@ jobs:
           -d ProductVersion="$($env:VERSION).0" `
           -o ZeeCrypt-Installer.msi
 
+    # Signs the final (UPX-compressed) exe and the MSI so the in-app updater
+    # can tell a genuine release from a tampered one. The key lives in the
+    # ZEECRYPT_SIGNING_KEY secret (see src/cmd/zeecrypt-sign). Until
+    # releasePublicKey is set in src/ZeeCrypt.go this step is skipped; once it
+    # is set, a missing secret or a key mismatch fails the release, since the
+    # app would refuse the update anyway.
+    - name: Sign release files
+      shell: pwsh
+      env:
+        ZEECRYPT_SIGNING_KEY: ${{ secrets.ZEECRYPT_SIGNING_KEY }}
+      run: |
+        $m = Select-String -Path src/ZeeCrypt.go -Pattern '^var releasePublicKey = "([^"]+)"'
+        if (-not $m) {
+          if ($env:ZEECRYPT_SIGNING_KEY) { throw "ZEECRYPT_SIGNING_KEY is set but releasePublicKey is empty in src/ZeeCrypt.go" }
+          Write-Host "No release key configured; skipping signatures"
+          exit 0
+        }
+        if (-not $env:ZEECRYPT_SIGNING_KEY) { throw "releasePublicKey is set but the ZEECRYPT_SIGNING_KEY secret is missing" }
+        $pub = $m.Matches[0].Groups[1].Value
+        cd src
+        go run ./cmd/zeecrypt-sign sign $env:VERSION ZeeCrypt.exe ../ZeeCrypt-Installer.msi
+        if ($LASTEXITCODE -ne 0) { throw "signing failed" }
+        go run ./cmd/zeecrypt-sign verify $pub $env:VERSION ZeeCrypt.exe
+        if ($LASTEXITCODE -ne 0) { throw "signature doesn't match releasePublicKey" }
+
     - name: Upload artifact
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: build-windows
         path: |
           src/*.exe
+          src/*.exe.sig
+          ZeeCrypt-Installer.msi.sig
           ZeeCrypt-Installer.msi
         if-no-files-found: error
         compression-level: 9
@@ -106,6 +133,8 @@ jobs:
         files: |
           src/ZeeCrypt.exe
           ZeeCrypt-Installer.msi
+          src/ZeeCrypt.exe.sig
+          ZeeCrypt-Installer.msi.sig
         tag_name: ${{ env.VERSION }}
         make_latest: true
         append_body: true

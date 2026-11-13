@@ -14,6 +14,24 @@ Five features, plus one security item left open by the v2.1.0 audit fixes. Each 
 
 Suggested order: **3 → 5 → 6 → 0 → 1 → 4 → 2**. Items 3, 5 and 6 don't touch the volume format, so they can ship as v2.x releases. Items 0, 1, 4 and 2 depend on each other and should ship together as v3.0.0.
 
+## Status (2026-11-13)
+
+Implemented on branch `feat/v3-features`, one commit per feature, with the defaults recommended below:
+
+| # | Feature | State | Not done |
+|---|---|---|---|
+| 3 | Explorer verbs | Phase A: `--encrypt`/`--decrypt`/`--`, Encrypt/Decrypt verbs, quoted `"%1"`, single instance over a named pipe | Phase B (Windows 11 top-level menu) needs code signing |
+| 5 | Compression | zstd Fast/Balanced/Maximum in `.tar.zst`; auto-unzip reads it | xz/LZMA2 (zstd's maximum level was judged enough); skipping already-compressed files (zstd stores incompressible blocks quickly anyway) |
+| 6 | Signed updates | Ed25519 `.sig` per release, `cmd/zeecrypt-sign`, CI step | Generating the release key (owner); Authenticode |
+| 0 | v3 format | `src/volume`: file key + stanzas, chunked MACs (**PCC-004 fixed**), per-chunk Reed-Solomon repair, authenticated comments | |
+| 1 | Public-key recipients | X25519 + ML-KEM-768 stanza, `src/keys` identities and contacts, UI | |
+| 4 | Signatures | Ed25519, encrypted signature block | ML-DSA (post-quantum) signatures |
+| 2 | Security keys | FIDO2 hmac-secret via `webauthn.dll`, second factor only, PIN required | **Untested on real hardware**; TPM alternative |
+
+Decisions taken: (1) v3 fixes PCC-004: yes. (2) "Open with ZeeCrypt" kept alongside the new verbs. (3) Security key = second factor only, PIN (user verification) required. (4) No code-signing certificate assumed. (5) The one-file convention is broken: `src/volume`, `src/keys`, `src/fido2`, `src/internal/releasesig`, plus `instance.go`, `archive.go`, `v3work.go`, `keysui.go` in package main.
+
+Correction to section 1 below: public keys and deniability don't conflict because stanzas are distinguishable (the deniability layer encrypts the whole volume, stanzas included). They conflict because that layer is opened with the password alone, which recipients don't have.
+
 ---
 
 ## 0. Groundwork (do this before 1, 2 and 4)
@@ -56,7 +74,7 @@ Suggested order: **3 → 5 → 6 → 0 → 1 → 4 → 2**. Items 3, 5 and 6 don
 - UI: a new "Keys" modal with Generate identity, Copy my public key and Export. The encrypt screen gets a "Recipients" button that opens a list modal: paste a key or load a `.pub` file. A volume can mix recipients with a password.
 
 **Limits to document**
-- **Not compatible with deniability.** Ephemeral X25519 and ML-KEM values can be told apart from random bytes (making them indistinguishable would need Elligator-style encoding). Disable the combination in the UI.
+- **Not compatible with deniability.** The deniability layer is opened with the password alone, which recipients don't have. Disable the combination in the UI.
 - Anyone can encrypt *to* you, so a recipient-encrypted file says nothing about who sent it. That's what #4 solves.
 
 **Tests:** KAT vectors for the wrap; wrong identity is rejected; a stanza for another recipient is skipped; an encrypted identity with the wrong password fails cleanly.
