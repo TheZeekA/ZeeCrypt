@@ -10,6 +10,7 @@ require (
 	github.com/Picocrypt/serpent v0.0.0-20240830233833-9ad6ab254fd7
 	github.com/Picocrypt/zxcvbn-go v0.0.0-20250412183938-d59695960527
 	golang.org/x/crypto v0.40.0
+	golang.org/x/sys v0.34.0
 )
 
 require (
@@ -25,7 +26,6 @@ require (
 	github.com/urfave/cli/v2 v2.25.7 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	golang.org/x/image v0.12.0 // indirect
-	golang.org/x/sys v0.34.0 // indirect
 )
 
 tool github.com/tc-hib/go-winres

@@ -2,6 +2,9 @@
 
 # v2.1.0 (Unreleased)
 <ul>
+	<li>✓ Added: "Encrypt with ZeeCrypt" (files and folders) and "Decrypt with ZeeCrypt" (<code>.pcv</code> files) in Explorer's right-click menu, next to "Open with ZeeCrypt". "Encrypt" also works on a <code>.pcv</code> file from the command line (<code>--encrypt</code>), to encrypt a volume again with another key.</li>
+	<li>✓ Added: ZeeCrypt now runs as a single window. Opening more files from Explorer while it's open sends them to the existing window, and selecting several files in Explorer opens them together instead of in separate windows.</li>
+	<li>✓ Fixed: the installer's right-click entries passed the path unquoted, so paths containing spaces could open the wrong thing.</li>
 	<li>✓ Security: the header no longer stores a SHA3-256 hash of the keyfile key (the field is written as zeros). It let anyone test keyfile guesses at hash speed, independently of the password; the header HMAC already verifies keyfiles. As a result, a wrong password and wrong keyfiles now show the same message. Volumes from earlier versions still open. <strong>v2.0.0 can't open keyfile volumes made by this version</strong> (it reports "Incorrect keyfiles").</li>
 	<li>✓ Security: deniability now requires a password. Its layer is keyed by the password alone, so with keyfiles only, anyone could remove it and reveal the volume header.</li>
 	<li>✓ Security: unordered keyfiles with identical contents (e.g. a copy under another name) are refused when encrypting. They're XORed together, so they cancelled out and silently stopped protecting the volume.</li>

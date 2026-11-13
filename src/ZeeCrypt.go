@@ -384,6 +384,9 @@ func onClickStartButton() {
 
 // The main user interface
 func draw() {
+	if r, ok := takePendingLaunch(); ok {
+		applyLaunch(r)
+	}
 	giu.SingleWindow().Flags(524351).Layout(
 		giu.Custom(func() {
 			if giu.IsKeyReleased(giu.KeyEnter) {
@@ -1029,6 +1032,27 @@ func onDrop(names []string) {
 	compressDone, compressTotal = 0, 0
 	resetUI()
 
+	// Explorer's "Decrypt with ZeeCrypt" verb: only a single volume (or one
+	// of its split chunks) makes sense
+	if forcedMode == "decrypt" {
+		isVolume := false
+		if len(names) == 1 && (strings.HasSuffix(names[0], ".pcv") || splitChunkRegex.MatchString(names[0])) {
+			if stat, err := os.Stat(names[0]); err == nil && !stat.IsDir() {
+				isVolume = true
+			}
+		}
+		if !isVolume {
+			if len(names) == 1 {
+				mainStatus = "Not a ZeeCrypt volume"
+			} else {
+				mainStatus = "Select one volume to decrypt"
+			}
+			mainStatusColor = RED
+			giu.Update()
+			return
+		}
+	}
+
 	// One item dropped
 	if len(names) == 1 {
 		stat, err := os.Stat(names[0])
@@ -1054,9 +1078,13 @@ func onDrop(names []string) {
 
 			// Is the file a part of a split volume? ("name.pcv.<number>")
 			isSplit := splitChunkRegex.MatchString(names[0])
+			isVolume := strings.HasSuffix(names[0], ".pcv") || isSplit
+			if forcedMode == "encrypt" { // e.g. encrypt a volume again with another key
+				isSplit, isVolume = false, false
+			}
 
 			// Decide if encrypting or decrypting
-			if strings.HasSuffix(names[0], ".pcv") || isSplit {
+			if isVolume {
 				mode = "decrypt"
 				inputLabel = "Volume for decryption"
 				startLabel = "Decrypt"
@@ -2904,6 +2932,17 @@ func onWindowDrop(names []string) {
 	onDrop(names)
 }
 
+// forcedMode is "encrypt" or "decrypt" while onDropMode runs a drop that came
+// from an Explorer verb, overriding the usual detection by file name
+var forcedMode string
+
+// onDropMode is onDrop with an explicit mode ("" = detect from the names)
+func onDropMode(names []string, mode string) {
+	forcedMode = mode
+	defer func() { forcedMode = "" }()
+	onDrop(names)
+}
+
 // existingChunks returns the split chunks ("<base>.<number>") that exist for
 // 'base'. Listing the folder instead of globbing avoids treating characters
 // like '[' in file names as patterns, and never matches unrelated files that
@@ -3805,6 +3844,15 @@ func main() {
 		os.Remove(exe + ".old")
 	}
 
+	// Command-line arguments come from Explorer's verbs ("--encrypt"/
+	// "--decrypt", then paths). If ZeeCrypt is already open, hand them to
+	// that window and exit.
+	launch := parseArgs(os.Args[1:])
+	launches := make(chan launchRequest, 64)
+	if !startInstance(launch, launches) {
+		return
+	}
+
 	// Create the main window
 	window = giu.NewMasterWindow("ZeeCrypt "+version[1:], 318, 507, giu.MasterWindowFlagsNotResizable)
 
@@ -3824,11 +3872,12 @@ func main() {
 	// Set universal DPI
 	dpi = giu.Context.GetPlatform().GetContentScale()
 
-	// Simulate dropping command line arguments. They're always paths (from
-	// Explorer's "Open with"); no flag parsing, so a file whose name starts
-	// with '-' still opens instead of exiting with a usage error.
-	if len(os.Args) > 1 {
-		onDrop(os.Args[1:])
+	// Open this launch's paths, and anything forwarded by later launches.
+	// Explorer starts one process per selected item, so requests arriving
+	// within 300 ms of each other are merged into one drop.
+	go batchRequests(launches, 300*time.Millisecond, queueLaunch)
+	if len(launch.paths) > 0 {
+		launches <- launch
 	}
 
 	// Start the UI

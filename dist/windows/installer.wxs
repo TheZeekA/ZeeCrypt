@@ -96,7 +96,7 @@
         <RegistryValue Root="HKCR" Key=".pcv" Value="ZeeCrypt.pcv" Type="string" KeyPath="yes" />
         <RegistryValue Root="HKCR" Key="ZeeCrypt.pcv" Value="ZeeCrypt Encrypted Volume" Type="string" />
         <RegistryValue Root="HKCR" Key="ZeeCrypt.pcv\DefaultIcon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
-        <RegistryValue Root="HKCR" Key="ZeeCrypt.pcv\shell\open\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKCR" Key="ZeeCrypt.pcv\shell\open\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; -- &quot;%1&quot;" Type="string" />
       </Component>
 
       <!-- Clean up the Start Menu folder on uninstall -->
@@ -106,28 +106,58 @@
       </Component>
 
       <!--
-        Explorer right-click integration. A single "Open with ZeeCrypt" entry
-        for both files and folders: the app already auto-detects encrypt vs.
-        decrypt from what's opened (.pcv suffix means decrypt, everything
-        else means encrypt - see onDrop() in src/ZeeCrypt.go), so there's no
-        need for separate Encrypt/Decrypt verbs that would have to guess.
-        MultiSelectModel=Player makes Explorer launch one instance with every
-        selected path passed as a separate argument (main() already forwards
-        os.Args straight into onDrop(), the same path a real drag-and-drop
-        uses), instead of one instance per selected item.
+        Explorer right-click integration (classic menu; on Windows 11 these
+        are under "Show more options").
+
+        - "Open with ZeeCrypt" on files and folders: auto-detects encrypt or
+          decrypt (.pcv or a .pcv.N chunk means decrypt, see onDrop()).
+        - "Encrypt with ZeeCrypt" on files (except .pcv) and folders: always
+          encrypts.
+        - "Decrypt with ZeeCrypt" on .pcv files: always decrypts.
+
+        "%1" is quoted so a path containing spaces arrives as one argument,
+        and "-" "-" (two hyphens) ends ZeeCrypt's options, so a file named
+        "-x" is still a path. MultiSelectModel=Player keeps a verb visible
+        for any number of selected items. Explorer starts one process per
+        item; the first becomes the window and the rest forward their paths
+        to it over a named pipe (src/instance.go), which merges them into one
+        drop. The Decrypt verb is Single: ZeeCrypt decrypts one volume at a
+        time.
       -->
       <Component Id="ContextMenuFiles" Guid="*">
         <RegistryValue Root="HKCR" Key="*\shell\ZeeCrypt" Value="Open with ZeeCrypt" Type="string" KeyPath="yes" />
         <RegistryValue Root="HKCR" Key="*\shell\ZeeCrypt" Name="Icon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
         <RegistryValue Root="HKCR" Key="*\shell\ZeeCrypt" Name="MultiSelectModel" Value="Player" Type="string" />
-        <RegistryValue Root="HKCR" Key="*\shell\ZeeCrypt\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; %1" Type="string" />
+        <RegistryValue Root="HKCR" Key="*\shell\ZeeCrypt\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; -- &quot;%1&quot;" Type="string" />
       </Component>
 
       <Component Id="ContextMenuFolders" Guid="*">
         <RegistryValue Root="HKCR" Key="Directory\shell\ZeeCrypt" Value="Open with ZeeCrypt" Type="string" KeyPath="yes" />
         <RegistryValue Root="HKCR" Key="Directory\shell\ZeeCrypt" Name="Icon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
         <RegistryValue Root="HKCR" Key="Directory\shell\ZeeCrypt" Name="MultiSelectModel" Value="Player" Type="string" />
-        <RegistryValue Root="HKCR" Key="Directory\shell\ZeeCrypt\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; %1" Type="string" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\ZeeCrypt\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; -- &quot;%1&quot;" Type="string" />
+      </Component>
+
+      <Component Id="ContextMenuEncryptFiles" Guid="*">
+        <RegistryValue Root="HKCR" Key="*\shell\ZeeCrypt.Encrypt" Value="Encrypt with ZeeCrypt" Type="string" KeyPath="yes" />
+        <RegistryValue Root="HKCR" Key="*\shell\ZeeCrypt.Encrypt" Name="Icon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
+        <RegistryValue Root="HKCR" Key="*\shell\ZeeCrypt.Encrypt" Name="MultiSelectModel" Value="Player" Type="string" />
+        <RegistryValue Root="HKCR" Key="*\shell\ZeeCrypt.Encrypt" Name="AppliesTo" Value="NOT System.FileExtension:=.pcv" Type="string" />
+        <RegistryValue Root="HKCR" Key="*\shell\ZeeCrypt.Encrypt\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; --encrypt -- &quot;%1&quot;" Type="string" />
+      </Component>
+
+      <Component Id="ContextMenuEncryptFolders" Guid="*">
+        <RegistryValue Root="HKCR" Key="Directory\shell\ZeeCrypt.Encrypt" Value="Encrypt with ZeeCrypt" Type="string" KeyPath="yes" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\ZeeCrypt.Encrypt" Name="Icon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\ZeeCrypt.Encrypt" Name="MultiSelectModel" Value="Player" Type="string" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\ZeeCrypt.Encrypt\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; --encrypt -- &quot;%1&quot;" Type="string" />
+      </Component>
+
+      <Component Id="ContextMenuDecrypt" Guid="*">
+        <RegistryValue Root="HKCR" Key="ZeeCrypt.pcv\shell\ZeeCrypt.Decrypt" Value="Decrypt with ZeeCrypt" Type="string" KeyPath="yes" />
+        <RegistryValue Root="HKCR" Key="ZeeCrypt.pcv\shell\ZeeCrypt.Decrypt" Name="Icon" Value="[APPFOLDER]ZeeCrypt.exe,0" Type="string" />
+        <RegistryValue Root="HKCR" Key="ZeeCrypt.pcv\shell\ZeeCrypt.Decrypt" Name="MultiSelectModel" Value="Single" Type="string" />
+        <RegistryValue Root="HKCR" Key="ZeeCrypt.pcv\shell\ZeeCrypt.Decrypt\command" Value="&quot;[APPFOLDER]ZeeCrypt.exe&quot; --decrypt -- &quot;%1&quot;" Type="string" />
       </Component>
     </ComponentGroup>
   </Fragment>
