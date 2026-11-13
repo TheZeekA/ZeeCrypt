@@ -40,6 +40,8 @@ import (
 	"time"
 	"unsafe"
 
+	"ZeeCrypt/internal/releasesig"
+
 	"github.com/Picocrypt/dialog"
 	"github.com/Picocrypt/giu"
 	"github.com/Picocrypt/imgui-go"
@@ -104,6 +106,28 @@ var updateVersion string
 var updateNotes string
 var updateDownloadURL string
 var updateChecksum string
+var updateSigURL string
+
+// releasePublicKey is the Ed25519 key that signs releases (base64; create it
+// with "go run ./cmd/zeecrypt-sign keygen"). While it's empty, updates are
+// checked against the SHA-256 in the release notes only. Once it's set,
+// every update must also come with a valid ZeeCrypt.exe.sig, which a
+// tampered release (e.g. from a stolen GitHub token) can't produce.
+var releasePublicKey = ""
+
+// verifyUpdate checks a downloaded update's signature file against its
+// SHA-256 and the version it was offered as. Always nil while no release
+// key is configured.
+func verifyUpdate(sigFile []byte, version string, sum []byte) error {
+	if releasePublicKey == "" {
+		return nil
+	}
+	pub, err := releasesig.ParsePublicKey(releasePublicKey)
+	if err != nil {
+		return err
+	}
+	return releasesig.Verify(pub, sigFile, "ZeeCrypt.exe", version, sum)
+}
 var updateError string
 
 // Input and output files
@@ -3556,14 +3580,21 @@ func checkForUpdates() {
 			return // already up to date - stay silent
 		}
 
-		var downloadURL string
+		var downloadURL, sigURL string
 		for _, a := range release.Assets {
 			if a.Name == "ZeeCrypt.exe" {
 				downloadURL = a.BrowserDownloadURL
 			}
+			if a.Name == "ZeeCrypt.exe.sig" {
+				sigURL = a.BrowserDownloadURL
+			}
 		}
 		if downloadURL == "" {
 			updateError = "Update found, but no download was published for it"
+			return
+		}
+		if releasePublicKey != "" && sigURL == "" {
+			updateError = "Update found, but it isn't signed - download it from GitHub instead"
 			return
 		}
 
@@ -3576,6 +3607,7 @@ func checkForUpdates() {
 		updateVersion = release.TagName
 		updateNotes = release.Body
 		updateDownloadURL = downloadURL
+		updateSigURL = sigURL
 		updateChecksum = m[1]
 		updateAvailable = true
 
@@ -3651,11 +3683,36 @@ func applyUpdate() {
 			return
 		}
 
-		actual := hex.EncodeToString(hasher.Sum(nil))
-		if !strings.EqualFold(actual, updateChecksum) {
+		sum := hasher.Sum(nil)
+		if !strings.EqualFold(hex.EncodeToString(sum), updateChecksum) {
 			os.Remove(tmpPath)
 			updateError = "Update failed checksum verification - aborted for your safety"
 			return
+		}
+
+		// The checksum comes from the same release, so it only catches a
+		// broken download. The signature also catches a tampered release.
+		if releasePublicKey != "" {
+			var sigFile []byte
+			sigResp, err := client.Get(updateSigURL)
+			if err == nil {
+				if sigResp.StatusCode == http.StatusOK {
+					sigFile, err = io.ReadAll(io.LimitReader(sigResp.Body, 4096))
+				} else {
+					err = errors.New(sigResp.Status)
+				}
+				sigResp.Body.Close()
+			}
+			if err != nil {
+				os.Remove(tmpPath)
+				updateError = "Failed to download the update's signature"
+				return
+			}
+			if verifyUpdate(sigFile, updateVersion, sum) != nil {
+				os.Remove(tmpPath)
+				updateError = "Update failed signature verification - aborted for your safety"
+				return
+			}
 		}
 
 		// An operation may have started during the download

@@ -2,6 +2,7 @@
 
 # v2.1.0 (Unreleased)
 <ul>
+	<li>✓ Added: signed updates. Once the release key is set up (see <code>src/README.md</code>), every release's <code>ZeeCrypt.exe</code> and MSI carry an Ed25519 signature, and the updater refuses an update without a valid one. The signature covers the version, so an old release can't be served as a new one. Until then, updates are checked against their published checksum as before.</li>
 	<li>✓ Added: compression levels (Fast, Balanced, Maximum) using zstd, several times faster than the old Deflate at a better ratio. Compressed files go into a <code>.tar.zst</code> archive, which Windows 11 Explorer and 7-Zip open natively; without compression a plain zip is still used. Auto unzip extracts <code>.tar.zst</code> archives too, rejecting links, devices and paths outside the folder.</li>
 	<li>✓ Added: "Encrypt with ZeeCrypt" (files and folders) and "Decrypt with ZeeCrypt" (<code>.pcv</code> files) in Explorer's right-click menu, next to "Open with ZeeCrypt". "Encrypt" also works on a <code>.pcv</code> file from the command line (<code>--encrypt</code>), to encrypt a volume again with another key.</li>
 	<li>✓ Added: ZeeCrypt now runs as a single window. Opening more files from Explorer while it's open sends them to the existing window, and selecting several files in Explorer opens them together instead of in separate windows.</li>

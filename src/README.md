@@ -20,7 +20,7 @@ Note: Make sure to set `CGO_ENABLED=1` if it isn't already. Also make sure **not
 You should now see a compiled executable (`ZeeCrypt.exe`) in your directory, with the app icon already embedded. You can run it by double-clicking or executing it in your terminal. That wasn't too hard, right? Enjoy!
 
 # Running the tests
-<code>go test .</code> (with `CGO_ENABLED=1`) runs headless end-to-end tests that drive the same code paths as the UI: round trips across every option, tampering/corruption and Reed-Solomon repair, cleanup of temporary files on failure, and compatibility with the v1.51 volumes in `testdata/`. Each encryption or decryption runs Argon2id with 1 GiB of memory, so the suite takes about a minute and needs a few GiB of free RAM.
+<code>go test ./...</code> (with `CGO_ENABLED=1`) runs headless end-to-end tests that drive the same code paths as the UI: round trips across every option, tampering/corruption and Reed-Solomon repair, cleanup of temporary files on failure, and compatibility with the v1.51 volumes in `testdata/`. Each encryption or decryption runs Argon2id with 1 GiB of memory, so the suite takes about a minute and needs a few GiB of free RAM.
 
 # Updating the app icon
 The icon is embedded automatically via `rsrc_windows_386.syso`/`rsrc_windows_amd64.syso` in this directory, which `go build` links in without any extra flags. If you change `images/lock.ico`, regenerate these files:
@@ -38,3 +38,12 @@ Instead, CI (and release builds) patch the manifest and version info into the al
 go tool go-winres patch --in winres/winres.json --no-backup ZeeCrypt.exe
 ```
 When bumping `VERSION`, also update `file_version`/`product_version`/`FileVersion` in `src/winres/winres.json` to match.
+
+# Signing releases
+The in-app updater checks each release against an Ed25519 key built into the app (`releasePublicKey` in `ZeeCrypt.go`). While that's empty, updates are only checked against the SHA-256 in the release notes, which catches a broken download but not a tampered release. To turn signing on, once:
+
+1. On a trusted machine, create the key: `go run ./cmd/zeecrypt-sign keygen release.key`. It prints the public key.
+2. Put the public key in `releasePublicKey` and commit it.
+3. Add the contents of `release.key` as an Actions secret named `ZEECRYPT_SIGNING_KEY` (ideally in an environment that needs manual approval). Then store `release.key` offline; losing it means shipping a new key with a release signed the old way, and anyone holding it can sign updates.
+
+The release workflow then signs `ZeeCrypt.exe` and the MSI (`*.sig` assets) and fails if the secret is missing or doesn't match the public key. Anyone can check a download: `go run ./cmd/zeecrypt-sign verify <public key> <version> ZeeCrypt.exe` (with `ZeeCrypt.exe.sig` next to it).
