@@ -41,6 +41,7 @@ import (
 	"unsafe"
 
 	"ZeeCrypt/internal/releasesig"
+	"ZeeCrypt/volume"
 
 	"github.com/Picocrypt/dialog"
 	"github.com/Picocrypt/giu"
@@ -277,7 +278,7 @@ func onClickStartButton() {
 	}
 
 	// Start button should be disabled if these conditions are true; don't do anything if so
-	if (len(keyfiles) == 0 && password == "") || (mode == "encrypt" && password != cpassword) {
+	if !hasCredentials() || (mode == "encrypt" && password != cpassword) {
 		return
 	}
 
@@ -288,7 +289,17 @@ func onClickStartButton() {
 		return
 	}
 
-	if keyfile && keyfiles == nil {
+	// Public-key stanzas can be told apart from random bytes, which would
+	// give a deniable volume away
+	if mode == "encrypt" && deniability && len(recipients()) > 0 {
+		mainStatus = "Deniability can't be combined with public keys"
+		mainStatusColor = RED
+		giu.Update()
+		return
+	}
+
+	// Keyfiles belong to the password; an identity opens a volume without them
+	if keyfile && keyfiles == nil && !(identity != nil && volumeHasRecipients) {
 		mainStatus = "Please select your keyfiles"
 		mainStatusColor = RED
 		giu.Update()
@@ -522,6 +533,8 @@ func draw() {
 				giu.Update()
 			}
 
+			keysModal().Build()
+
 			if showProgress {
 				giu.PopupModal("Progress:##"+strconv.Itoa(modalId)).Flags(6|1<<0).Layout(
 					giu.Dummy(0, 0),
@@ -754,10 +767,27 @@ func draw() {
 					),
 				),
 			),
+
+			giu.Dummy(0, 0),
+			giu.Custom(func() {
+				label := publicKeysLabel()
+				giu.Row(
+					giu.Label("Public keys:"),
+					giu.Button("Edit##keys").Size(54, 0).OnClick(func() {
+						showKeys = true
+						modalId++
+						giu.Update()
+					}),
+					giu.Tooltip("Encrypt to people's public keys and sign, or open a volume with your identity"),
+					giu.Style().SetDisabled(true).To(
+						giu.InputText(&label).Size(giu.Auto),
+					),
+				).Build()
+			}),
 		),
 
 		giu.Separator(),
-		giu.Style().SetDisabled(mode != "decrypt" && ((len(keyfiles) == 0 && password == "") || (password != cpassword)) || deniability).To(
+		giu.Style().SetDisabled(mode != "decrypt" && (!hasCredentials() || (password != cpassword)) || deniability).To(
 			giu.Style().SetDisabled(mode == "decrypt" && (comments == "" || comments == "Comments are corrupted")).To(
 				giu.Label(commentsLabel),
 				giu.InputText(&comments).Size(giu.Auto).Flags(func() giu.InputTextFlags {
@@ -775,7 +805,7 @@ func draw() {
 				}),
 			),
 		),
-		giu.Style().SetDisabled((len(keyfiles) == 0 && password == "") || (mode == "encrypt" && password != cpassword)).To(
+		giu.Style().SetDisabled(!hasCredentials() || (mode == "encrypt" && password != cpassword)).To(
 			giu.Label("Advanced:"),
 			giu.Custom(func() {
 				if mode != "decrypt" {
@@ -1235,6 +1265,16 @@ func onDrop(names []string) {
 					}
 					if flags[2] == 1 {
 						keyfileOrdered = true
+					}
+
+					// A v3 volume may be encrypted to public keys
+					if isSplit {
+						noteVolumeStanzas(names[0] + ".0")
+					} else {
+						noteVolumeStanzas(names[0])
+					}
+					if volumeHasRecipients && !volumeHasPassword {
+						keyfileLabel = "Not applicable"
 					}
 					giu.Update()
 				}
@@ -2817,6 +2857,8 @@ func work(prepared bool) {
 
 	// All done, reset the UI
 	oldKept := kept
+	sig := lastSignature
+	lastSignature = volume.SignatureStatus{}
 	resetUI()
 	kept = oldKept
 
@@ -2828,8 +2870,7 @@ func work(prepared bool) {
 		mainStatus = "Completed, but couldn't delete: " + strings.Join(leftovers, ", ")
 		mainStatusColor = YELLOW
 	} else {
-		mainStatus = "Completed"
-		mainStatusColor = GREEN
+		mainStatus, mainStatusColor = signatureStatus(sig)
 	}
 }
 
@@ -2919,6 +2960,7 @@ func resetUI() {
 	passgenCopy = true
 
 	keyfile = false
+	volumeHasRecipients, volumeHasPassword = false, false
 	keyfiles = nil
 	keyfileOrdered = false
 	keyfileLabel = "None selected"
@@ -3227,16 +3269,39 @@ func clipboardPut(format uintptr, data []byte) bool {
 // leaves it out of clipboard history (Win+V) and cloud clipboard sync, and
 // clears it after 'clipboardClearDelay' unless something else was copied
 func setSecretClipboard(text string) {
-	if text == "" {
+	if !putClipboardText(text, true) {
 		return
+	}
+
+	seq, _, _ := procGetClipboardSequenceNumber.Call()
+	go func() {
+		time.Sleep(clipboardClearDelay)
+		if now, _, _ := procGetClipboardSequenceNumber.Call(); now == seq && openClipboard() {
+			procEmptyClipboard.Call()
+			procCloseClipboard.Call()
+		}
+	}()
+}
+
+// setClipboard copies non-secret text (e.g. a public key) normally
+func setClipboard(text string) {
+	putClipboardText(text, false)
+}
+
+// putClipboardText replaces the clipboard with 'text'. 'secret' keeps it
+// out of clipboard history, cloud sync and clipboard monitors.
+func putClipboardText(text string, secret bool) bool {
+	if text == "" {
+		return false
 	}
 	utf16Text, err := syscall.UTF16FromString(text)
 	if err != nil { // contains NUL; can't be typed or pasted anyway
-		return
+		return false
 	}
 	if !openClipboard() {
-		return
+		return false
 	}
+	defer procCloseClipboard.Call()
 	procEmptyClipboard.Call()
 	const cfUnicodeText = 13
 	buf := make([]byte, len(utf16Text)*2)
@@ -3244,6 +3309,9 @@ func setSecretClipboard(text string) {
 		buf[2*i], buf[2*i+1] = byte(c), byte(c>>8)
 	}
 	clipboardPut(cfUnicodeText, buf)
+	if !secret {
+		return true
+	}
 	for _, name := range []string{
 		"ExcludeClipboardContentFromMonitorProcessing",
 		"CanIncludeInClipboardHistory",
@@ -3254,16 +3322,7 @@ func setSecretClipboard(text string) {
 			clipboardPut(format, make([]byte, 4)) // DWORD 0: "no"
 		}
 	}
-	procCloseClipboard.Call()
-
-	seq, _, _ := procGetClipboardSequenceNumber.Call()
-	go func() {
-		time.Sleep(clipboardClearDelay)
-		if now, _, _ := procGetClipboardSequenceNumber.Call(); now == seq && openClipboard() {
-			procEmptyClipboard.Call()
-			procCloseClipboard.Call()
-		}
-	}()
+	return true
 }
 
 // HMAC-SHA3-512 over the header's decryption parameters, keyed by an HKDF-SHA3
@@ -3821,7 +3880,7 @@ func main() {
 	}
 
 	// Create the main window
-	window = giu.NewMasterWindow("ZeeCrypt "+version[1:], 318, 507, giu.MasterWindowFlagsNotResizable)
+	window = giu.NewMasterWindow("ZeeCrypt "+version[1:], 318, 535, giu.MasterWindowFlagsNotResizable)
 
 	// Switch from giu's default dark theme to a light theme
 	setLightTheme()

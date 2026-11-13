@@ -2,6 +2,8 @@
 
 # v3.0.0 (Unreleased)
 <ul>
+	<li>✓ Added: public-key encryption. Create an identity (a key pair in a password-protected file), share your public key, keep contacts, and encrypt to one or more people's public keys, with or without a password. Keys combine X25519 with ML-KEM-768 (post-quantum).</li>
+	<li>✓ Added: sender signatures. Volumes can be signed with your identity; decryption shows who signed (a contact's name, or an unknown key's fingerprint) and warns about invalid signatures. The signature is only visible to recipients and can't be carried over to a re-encrypted copy.</li>
 	<li>✓ New volume format (v3). Volumes made with earlier versions still open, but v2.x and earlier can't open v3 volumes.</li>
 	<li>✓ Security: fixes PCC-004 (decrypt-then-verify), the last open finding from the Picocrypt audit. Data is split into chunks that are each authenticated before being decrypted, so damaged or modified data never reaches the output, and a volume can't be truncated or reordered without detection.</li>
 	<li>✓ Security: comments are now authenticated (still readable without the password, but changing them is detected).</li>

@@ -17,7 +17,7 @@ Since v3.0.0, new volumes use format v3 (`src/volume`). Volumes in the older for
 
 **A random file key.** The data is encrypted under a random 32-byte file key, not directly under the password. The header holds one or more *stanzas*, each of which wraps the file key for one way of opening the volume (the design of [age](https://age-encryption.org)). Decryption tries each stanza until one opens; no key IDs are stored. Stanza types:
 - **Password** (type 1): Argon2id(password) with the same parameters as before (4 passes / 1 GiB / 4 threads, or 8 / 1 GiB / 8 in paranoid mode), combined with the keyfile key if keyfiles are used, through HKDF-SHA3. The file key is wrapped with ChaCha20-Poly1305 under that key. Body: Argon2 salt (16) | wrapped key (48).
-- **Recipient** (type 2) and **FIDO2** (type 3): see below.
+- **Recipient** (type 2): see "Public-Key Recipients" below. **FIDO2** (type 3): see "Hardware Keys" below.
 
 **Keys.** HKDF-SHA3-256 (salt: a random 32-byte value in the header) derives from the file key: the header MAC key, the XChaCha20 key, the Serpent key and the chunk MAC key.
 
@@ -46,6 +46,27 @@ Each chunk's tag is checked **before** it's decrypted or written, so damaged or 
 
 Deniability works as before: the whole v3 volume is wrapped in a headerless XChaCha20 layer keyed by Argon2id(password).
 
+
+# Public-Key Recipients
+A volume can be encrypted to people's public keys instead of, or as well as, a password. Each person has an *identity*: a file holding their private keys, encrypted with their own password (as a v3 volume, paranoid mode with Reed-Solomon). Their public key, a `zeecrypt1…` string or `.pub` file, is safe to share.
+
+A public key bundles three keys: X25519 and ML-KEM-768 (to encrypt to you) and Ed25519 (to check your signatures). It's encoded as Bech32, so a typo is caught by the checksum. The fingerprint shown in the app is the first 80 bits of SHA-256 of the Ed25519 key, in base32; compare it over another channel (a call, in person) before trusting a key you received.
+
+**Recipient stanza** (type 2), hybrid so that it stays secure if either X25519 or ML-KEM is broken (X25519 alone would fall to a large quantum computer):
+```
+ephemeral X25519 key (32) | ML-KEM-768 ciphertext (1088) | wrapped file key (48)
+wrap key = HKDF-SHA3-256(X25519 shared secret | ML-KEM shared secret,
+                         salt = SHA3-256(ephemeral key | ciphertext | recipient's X25519 key | recipient's ML-KEM key),
+                         info = "zeecrypt v3 recipient stanza")
+```
+Stanzas don't name their recipient: each recipient tries every stanza. Public-key volumes can't use deniability, since X25519 and ML-KEM values can be told apart from random bytes.
+
+# Sender Signatures
+A volume can be signed with the sender's identity. A signed volume has a 128-byte signature block (384 bytes on disk) after the header block: the signer's Ed25519 public key and a signature over
+```
+"zeecrypt v3 signature" | header MAC | SHA3-256(every chunk tag, in order)
+```
+The header MAC covers every stanza and the chunk tags cover all the data, so the signature can't be moved to another volume, and a recipient can't re-encrypt the volume to someone else and keep the signature (surreptitious forwarding). The block is encrypted with ChaCha20-Poly1305 under a key derived from the file key, so only people who can open the volume see who signed it. On decryption the app shows "signed by <contact>" for a contact, "signed by unknown <fingerprint>" otherwise, and warns if a signature doesn't verify. Signatures are Ed25519 only (not yet post-quantum).
 # Counter Overflow (v2)
 In the v2 format, since XChaCha20 has a max message size of 256 GiB, ZeeCrypt will use the HKDF-SHA3 mentioned above to generate a new nonce for XChaCha20 and a new IV for Serpent if the total encrypted data is more than 60 GiB. While this threshold can be increased up to 256 GiB, ZeeCrypt uses 60 GiB to prevent any edge cases with blocks or the counter used by Serpent.
 

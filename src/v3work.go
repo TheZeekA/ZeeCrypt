@@ -39,9 +39,30 @@ func isV3Volume(path string) bool {
 }
 
 // v3Identities builds the identities to try on a v3 volume from what the
-// user entered. 'keyfileKey' is nil without keyfiles.
+// user entered. 'keyfileKey' is nil without keyfiles. The open identity goes
+// first: trying it is instant, while a password costs an Argon2 run.
 func v3Identities(keyfileKey []byte) []volume.Identity {
-	return []volume.Identity{volume.Password{Password: []byte(password), KeyfileKey: keyfileKey}}
+	var ids []volume.Identity
+	if identity != nil {
+		ids = append(ids, identity.Opener())
+	}
+	if password != "" || keyfileKey != nil || len(ids) == 0 {
+		ids = append(ids, volume.Password{Password: []byte(password), KeyfileKey: keyfileKey})
+	}
+	return ids
+}
+
+// v3Recipients is who a new volume is encrypted for: the password (with
+// keyfiles) if one was entered, and the chosen public keys
+func v3Recipients(keyfileKey []byte) []volume.Recipient {
+	var rs []volume.Recipient
+	if password != "" || keyfileKey != nil {
+		rs = append(rs, volume.Password{Password: []byte(password), KeyfileKey: keyfileKey})
+	}
+	for _, k := range recipients() {
+		rs = append(rs, k.Recipient())
+	}
+	return rs
 }
 
 // workV3 returns false if it failed; mainStatus then says why and all
@@ -78,6 +99,11 @@ func workV3(wrapInput func(io.Reader) io.Reader) bool {
 	if mode == "decrypt" {
 		if h, err := volume.ReadHeader(fin, true); err == nil {
 			keyfile, keyfileOrdered = h.Flags.Keyfiles, h.Flags.KeyfilesOrdered
+			volumeHasRecipients, volumeHasPassword = false, false
+			for _, s := range h.Stanzas {
+				volumeHasRecipients = volumeHasRecipients || s.Type == volume.StanzaRecipient
+				volumeHasPassword = volumeHasPassword || s.Type == volume.StanzaPassword
+			}
 		}
 		if _, err := fin.Seek(0, io.SeekStart); err != nil {
 			fin.Close()
@@ -85,7 +111,11 @@ func workV3(wrapInput func(io.Reader) io.Reader) bool {
 			accessDenied("Read")
 			return false
 		}
-		if keyfile && len(keyfiles) == 0 {
+		if volumeHasRecipients && !volumeHasPassword && identity == nil {
+			broken(fin, nil, "This volume is encrypted to a public key: open your identity first", true)
+			return false
+		}
+		if keyfile && len(keyfiles) == 0 && !(identity != nil && volumeHasRecipients) {
 			broken(fin, nil, "This volume requires keyfiles, please select them", true)
 			return false
 		}
@@ -143,10 +173,14 @@ func workV3(wrapInput func(io.Reader) io.Reader) bool {
 			KeyfilesOrdered: keyfileKey != nil && keyfileOrdered,
 			ReedSolomon:     reedsolo,
 		}
-		recipient := volume.Password{Password: []byte(password), KeyfileKey: keyfileKey}
-		err = volume.Encrypt(fout, wrapInput(fin), []volume.Recipient{recipient}, volume.EncryptOptions{
+		var signer *volume.Signer
+		if signVolumes && identity != nil {
+			signer = identity.Signer()
+		}
+		err = volume.Encrypt(fout, wrapInput(fin), v3Recipients(keyfileKey), volume.EncryptOptions{
 			Comments:  comments,
 			Flags:     flags,
+			Signer:    signer,
 			Progress:  reportProgress("Encrypting"),
 			Cancelled: cancelled,
 		})
@@ -167,18 +201,28 @@ func workV3(wrapInput func(io.Reader) io.Reader) bool {
 	} else {
 		popupStatus = "Deriving key..."
 		giu.Update()
+		var trusted []volume.TrustedSigner
+		if identity != nil {
+			trusted = identity.TrustedSigners()
+		}
 		res, err := volume.Decrypt(fout, wrapInput(fin), v3Identities(keyfileKey), volume.DecryptOptions{
-			Force:     keep,
-			Progress:  reportProgress("Decrypting"),
-			Cancelled: cancelled,
+			Force:          keep,
+			TrustedSigners: trusted,
+			Progress:       reportProgress("Decrypting"),
+			Cancelled:      cancelled,
 		})
+		lastSignature = res.Signature
 		if err != nil {
 			fail := v3Fail(fin, fout)
 			switch {
 			case errors.Is(err, volume.ErrCancelled):
 				cancel(nil, nil)
 			case errors.Is(err, volume.ErrIncorrect):
-				if keyfile || keyfileKey != nil {
+				if volumeHasRecipients && !volumeHasPassword {
+					mainStatus = "Your identity can't open this volume"
+				} else if volumeHasRecipients && password == "" {
+					mainStatus = "Your identity can't open this volume; try its password"
+				} else if keyfile || keyfileKey != nil {
 					mainStatus = "The password or keyfiles are incorrect, or the file has been tampered with"
 				} else {
 					mainStatus = "The provided password is incorrect, or the file has been tampered with"
