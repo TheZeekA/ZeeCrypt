@@ -10,10 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"ZeeCrypt/fido2"
 	"ZeeCrypt/volume"
 
 	"github.com/Picocrypt/giu"
@@ -49,14 +52,31 @@ func v3Identities(keyfileKey []byte) []volume.Identity {
 	if password != "" || keyfileKey != nil || len(ids) == 0 {
 		ids = append(ids, volume.Password{Password: []byte(password), KeyfileKey: keyfileKey})
 	}
+	// Last, since it asks for a touch: only for volumes that have the stanza
+	if volumeHasFIDO2 {
+		ids = append(ids, volume.FIDO2Password{Password: []byte(password), KeyfileKey: keyfileKey, Device: securityKey()})
+	}
 	return ids
 }
 
+// testSecurityKey replaces the real security key in tests
+var testSecurityKey volume.FIDO2Device
+
+func securityKey() volume.FIDO2Device {
+	if testSecurityKey != nil {
+		return testSecurityKey
+	}
+	return fido2.Device{HWND: mainWindowHandle()}
+}
+
 // v3Recipients is who a new volume is encrypted for: the password (with
-// keyfiles) if one was entered, and the chosen public keys
+// keyfiles, and the security key if chosen) if one was entered, and the
+// chosen public keys
 func v3Recipients(keyfileKey []byte) []volume.Recipient {
 	var rs []volume.Recipient
-	if password != "" || keyfileKey != nil {
+	if useSecurityKey {
+		rs = append(rs, volume.FIDO2Password{Password: []byte(password), KeyfileKey: keyfileKey, Device: securityKey()})
+	} else if password != "" || keyfileKey != nil {
 		rs = append(rs, volume.Password{Password: []byte(password), KeyfileKey: keyfileKey})
 	}
 	for _, k := range recipients() {
@@ -99,10 +119,11 @@ func workV3(wrapInput func(io.Reader) io.Reader) bool {
 	if mode == "decrypt" {
 		if h, err := volume.ReadHeader(fin, true); err == nil {
 			keyfile, keyfileOrdered = h.Flags.Keyfiles, h.Flags.KeyfilesOrdered
-			volumeHasRecipients, volumeHasPassword = false, false
+			volumeHasRecipients, volumeHasPassword, volumeHasFIDO2 = false, false, false
 			for _, s := range h.Stanzas {
 				volumeHasRecipients = volumeHasRecipients || s.Type == volume.StanzaRecipient
 				volumeHasPassword = volumeHasPassword || s.Type == volume.StanzaPassword
+				volumeHasFIDO2 = volumeHasFIDO2 || s.Type == volume.StanzaFIDO2
 			}
 		}
 		if _, err := fin.Seek(0, io.SeekStart); err != nil {
@@ -111,7 +132,7 @@ func workV3(wrapInput func(io.Reader) io.Reader) bool {
 			accessDenied("Read")
 			return false
 		}
-		if volumeHasRecipients && !volumeHasPassword && identity == nil {
+		if volumeHasRecipients && !volumeHasPassword && !volumeHasFIDO2 && identity == nil {
 			broken(fin, nil, "This volume is encrypted to a public key: open your identity first", true)
 			return false
 		}
@@ -166,6 +187,9 @@ func workV3(wrapInput func(io.Reader) io.Reader) bool {
 
 	if mode == "encrypt" {
 		popupStatus = "Deriving key..."
+		if useSecurityKey {
+			popupStatus = "Touch your security key (twice)..."
+		}
 		giu.Update()
 		flags := volume.Flags{
 			Paranoid:        paranoid,
@@ -193,13 +217,16 @@ func workV3(wrapInput func(io.Reader) io.Reader) bool {
 				mainStatus = "Comment exceeds the maximum length of 99,999 characters"
 				mainStatusColor = RED
 			default:
-				insufficientSpace(nil, nil)
+				v3OtherError(err)
 			}
 			fail()
 			return false
 		}
 	} else {
 		popupStatus = "Deriving key..."
+		if volumeHasFIDO2 {
+			popupStatus = "Touch your security key..."
+		}
 		giu.Update()
 		var trusted []volume.TrustedSigner
 		if identity != nil {
@@ -240,13 +267,11 @@ func workV3(wrapInput func(io.Reader) io.Reader) bool {
 			case errors.Is(err, volume.ErrTooShort):
 				mainStatus = "The file is too short to be a volume"
 				mainStatusColor = RED
+			case errors.Is(err, volume.ErrNoMatchingKey):
+				mainStatus = "This security key can't open the volume"
+				mainStatusColor = RED
 			default:
-				if res.Header != nil {
-					insufficientSpace(nil, nil)
-				} else {
-					mainStatus = err.Error()
-					mainStatusColor = RED
-				}
+				v3OtherError(err)
 			}
 			fail()
 			return false
@@ -272,6 +297,19 @@ func workV3(wrapInput func(io.Reader) io.Reader) bool {
 		return false
 	}
 	return true
+}
+
+// v3OtherError reports an error that isn't about the volume itself: a file
+// write (usually a full disk), or the security key (cancelled, unsupported)
+func v3OtherError(err error) {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		insufficientSpace(nil, nil)
+		return
+	}
+	msg := err.Error()
+	mainStatus = strings.ToUpper(msg[:1]) + msg[1:]
+	mainStatusColor = RED
 }
 
 // v3Fail returns the cleanup for a failed v3 operation: close both files,

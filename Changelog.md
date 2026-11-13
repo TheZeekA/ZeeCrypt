@@ -2,6 +2,7 @@
 
 # v3.0.0 (Unreleased)
 <ul>
+	<li>✓ Added: security keys as a second factor. A volume can require a FIDO2 key (hmac-secret, through Windows' built-in WebAuthn) as well as its password. Needs Windows 11 22H2+ and a key with a PIN.</li>
 	<li>✓ Added: public-key encryption. Create an identity (a key pair in a password-protected file), share your public key, keep contacts, and encrypt to one or more people's public keys, with or without a password. Keys combine X25519 with ML-KEM-768 (post-quantum).</li>
 	<li>✓ Added: sender signatures. Volumes can be signed with your identity; decryption shows who signed (a contact's name, or an unknown key's fingerprint) and warns about invalid signatures. The signature is only visible to recipients and can't be carried over to a re-encrypted copy.</li>
 	<li>✓ New volume format (v3). Volumes made with earlier versions still open, but v2.x and earlier can't open v3 volumes.</li>

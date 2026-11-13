@@ -59,7 +59,7 @@ wrap key = HKDF-SHA3-256(X25519 shared secret | ML-KEM shared secret,
                          salt = SHA3-256(ephemeral key | ciphertext | recipient's X25519 key | recipient's ML-KEM key),
                          info = "zeecrypt v3 recipient stanza")
 ```
-Stanzas don't name their recipient: each recipient tries every stanza. Public-key volumes can't use deniability, since X25519 and ML-KEM values can be told apart from random bytes.
+Stanzas don't name their recipient: each recipient tries every stanza. Public-key volumes can't use deniability: its outer layer is opened with the password alone, which recipients don't have.
 
 # Sender Signatures
 A volume can be signed with the sender's identity. A signed volume has a 128-byte signature block (384 bytes on disk) after the header block: the signer's Ed25519 public key and a signature over
@@ -67,6 +67,15 @@ A volume can be signed with the sender's identity. A signed volume has a 128-byt
 "zeecrypt v3 signature" | header MAC | SHA3-256(every chunk tag, in order)
 ```
 The header MAC covers every stanza and the chunk tags cover all the data, so the signature can't be moved to another volume, and a recipient can't re-encrypt the volume to someone else and keep the signature (surreptitious forwarding). The block is encrypted with ChaCha20-Poly1305 under a key derived from the file key, so only people who can open the volume see who signed it. On decryption the app shows "signed by <contact>" for a contact, "signed by unknown <fingerprint>" otherwise, and warns if a signature doesn't verify. Signatures are Ed25519 only (not yet post-quantum).
+
+# Hardware Keys
+A volume can require a FIDO2 security key (YubiKey, SoloKey, Google Titan, …) on top of its password. ZeeCrypt uses the key's `hmac-secret` extension (WebAuthn PRF) through the Windows WebAuthn API (`webauthn.dll`), so Windows shows its own touch and PIN prompts, and no drivers, admin rights or vendor software are needed. It needs Windows 11 22H2 or later and a key with a PIN: user verification is always required, because a key derives a different secret with and without it.
+
+When encrypting, ZeeCrypt registers a credential on the key (one touch) and asks it for a secret from a random 32-byte salt (a second touch). The **FIDO2 stanza** (type 3) wraps the file key under
+```
+HKDF-SHA3-256(Argon2id(password) | keyfile key | key secret, salt = Argon2 salt, info = "zeecrypt v3 fido2 stanza")
+```
+Body: Argon2 salt (16) | PRF salt (32) | credential ID length (2) | credential ID | wrapped key (48). The password alone, or the key alone, opens nothing. Losing the key means losing the volume, so the app suggests also encrypting to your own public key as a backup. Security keys work with deniability (the outer layer only needs the password).
 # Counter Overflow (v2)
 In the v2 format, since XChaCha20 has a max message size of 256 GiB, ZeeCrypt will use the HKDF-SHA3 mentioned above to generate a new nonce for XChaCha20 and a new IV for Serpent if the total encrypted data is more than 60 GiB. While this threshold can be increased up to 256 GiB, ZeeCrypt uses 60 GiB to prevent any edge cases with blocks or the counter used by Serpent.
 

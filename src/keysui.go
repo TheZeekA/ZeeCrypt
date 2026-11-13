@@ -37,10 +37,12 @@ var (
 	contactSelected []bool           // parallel to identity.Contacts
 	extraRecipients []keys.PublicKey // from .pub files, not saved as contacts
 	signVolumes     bool
+	useSecurityKey  bool // FIDO2 second factor with the password
 
 	// What the dropped v3 volume can be opened with
 	volumeHasRecipients bool
 	volumeHasPassword   bool
+	volumeHasFIDO2      bool
 
 	// The last decryption's signature, for the final status
 	lastSignature volume.SignatureStatus
@@ -77,6 +79,8 @@ func hasCredentials() bool {
 func publicKeysLabel() string {
 	if mode == "decrypt" {
 		switch {
+		case volumeHasFIDO2:
+			return "Password + security key"
 		case !volumeHasRecipients:
 			return "Not applicable"
 		case identity != nil:
@@ -99,12 +103,18 @@ func publicKeysLabel() string {
 	if signVolumes && identity != nil {
 		s += ", signed"
 	}
+	if useSecurityKey {
+		if s == "None" {
+			return "Security key"
+		}
+		s += ", security key"
+	}
 	return s
 }
 
 // noteVolumeStanzas records what a v3 volume can be opened with, for the UI
 func noteVolumeStanzas(path string) {
-	volumeHasRecipients, volumeHasPassword = false, false
+	volumeHasRecipients, volumeHasPassword, volumeHasFIDO2 = false, false, false
 	f, err := os.Open(path)
 	if err != nil {
 		return
@@ -120,6 +130,8 @@ func noteVolumeStanzas(path string) {
 			volumeHasRecipients = true
 		case volume.StanzaPassword:
 			volumeHasPassword = true
+		case volume.StanzaFIDO2:
+			volumeHasFIDO2 = true
 		}
 	}
 }
@@ -340,6 +352,7 @@ func keysModal() giu.Widget {
 		giu.PopupModal("Public keys:##"+strconv.Itoa(modalId)).Flags(6|64).Layout(
 			giu.Style().SetDisabled(keysBusy).To(
 				giu.Custom(identitySection),
+				giu.Custom(securityKeySection),
 				giu.Custom(recipientsSection),
 			),
 			giu.Custom(func() {
@@ -395,6 +408,22 @@ func identitySection() {
 	if mode == "encrypt" {
 		giu.Checkbox("Sign as you", &signVolumes).Build()
 		giu.Tooltip("Recipients will see that you made this volume").Build()
+	}
+}
+
+// securityKeySection offers a FIDO2 key as a second factor when encrypting
+func securityKeySection() {
+	if mode != "encrypt" {
+		return
+	}
+	giu.Separator().Build()
+	giu.Checkbox("Also require a security key", &useSecurityKey).Build()
+	giu.Tooltip("A FIDO2 key (YubiKey, SoloKey, Titan, ...) with a PIN, touched when encrypting and decrypting, on top of the password").Build()
+	if useSecurityKey {
+		giu.Style().SetColor(giu.StyleColorText, YELLOW).To(
+			giu.Label("Without this key the password can't open it:"),
+			giu.Label("also encrypt to your public key as a backup"),
+		).Build()
 	}
 }
 

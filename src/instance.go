@@ -309,18 +309,28 @@ var (
 	procGetWindowThreadProcessId = user32.NewProc("GetWindowThreadProcessId")
 )
 
-func bringWindowToFront() {
+// mainWindowHandle finds this process's ZeeCrypt window (0 if none), to
+// bring it forward or to own system dialogs such as the security key prompt
+func mainWindowHandle() uintptr {
 	title, err := syscall.UTF16PtrFromString("ZeeCrypt " + version[1:])
 	if err != nil {
-		return
+		return 0
 	}
 	hwnd, _, _ := procFindWindowW.Call(0, uintptr(unsafe.Pointer(title)))
 	if hwnd == 0 {
-		return
+		return 0
 	}
 	var pid uint32
 	procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
 	if pid != windows.GetCurrentProcessId() {
+		return 0
+	}
+	return hwnd
+}
+
+func bringWindowToFront() {
+	hwnd := mainWindowHandle()
+	if hwnd == 0 {
 		return
 	}
 	if iconic, _, _ := procIsIconic.Call(hwnd); iconic != 0 {

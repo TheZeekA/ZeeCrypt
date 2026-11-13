@@ -289,10 +289,18 @@ func onClickStartButton() {
 		return
 	}
 
-	// Public-key stanzas can be told apart from random bytes, which would
-	// give a deniable volume away
+	// The deniability layer is opened with the password alone, which
+	// public-key recipients don't have
 	if mode == "encrypt" && deniability && len(recipients()) > 0 {
 		mainStatus = "Deniability can't be combined with public keys"
+		mainStatusColor = RED
+		giu.Update()
+		return
+	}
+
+	// A security key is a second factor: it needs a password to go with it
+	if mode == "encrypt" && useSecurityKey && password == "" {
+		mainStatus = "A security key is used together with a password"
 		mainStatusColor = RED
 		giu.Update()
 		return
@@ -2960,7 +2968,7 @@ func resetUI() {
 	passgenCopy = true
 
 	keyfile = false
-	volumeHasRecipients, volumeHasPassword = false, false
+	volumeHasRecipients, volumeHasPassword, volumeHasFIDO2 = false, false, false
 	keyfiles = nil
 	keyfileOrdered = false
 	keyfileLabel = "None selected"
