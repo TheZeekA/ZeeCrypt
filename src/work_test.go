@@ -94,14 +94,16 @@ func TestWrongCredentialsMessages(t *testing.T) {
 	mustStatus(t, st, "Completed")
 	os.Remove(in)
 
+	// Since v2.1.0 the keyfile hash isn't stored, so a wrong password and
+	// wrong keyfiles can no longer be told apart (that was the leak)
 	_, st = decrypt(t, vol, "wrong", []string{k1, k2}, nil)
-	mustStatus(t, st, "password is incorrect")
+	mustStatus(t, st, "password or keyfiles are incorrect")
 	_, st = decrypt(t, vol, "right", []string{k1, k3}, nil)
-	mustStatus(t, st, "Incorrect keyfiles or ordering")
+	mustStatus(t, st, "password or keyfiles are incorrect")
 	_, st = decrypt(t, vol, "right", []string{k2, k1}, nil)
-	mustStatus(t, st, "Incorrect keyfiles or ordering")
+	mustStatus(t, st, "password or keyfiles are incorrect")
 	_, st = decrypt(t, vol, "wrong", []string{k1, k3}, nil)
-	mustStatus(t, st, "Incorrect keyfiles")
+	mustStatus(t, st, "password or keyfiles are incorrect")
 	mustOnly(t, dir, "f.bin.pcv", "1.key", "2.key", "3.key")
 }
 

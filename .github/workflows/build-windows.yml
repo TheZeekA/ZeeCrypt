@@ -15,7 +15,7 @@ jobs:
   build:
     runs-on: windows-2025
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
     - name: Get version tag
       shell: pwsh
@@ -24,9 +24,9 @@ jobs:
         echo "VERSION=$version" >> $env:GITHUB_ENV
 
     - name: Setup Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
-        go-version: '>=1.24'
+        go-version: '1.27.x' # minor pinned; patch releases (security fixes) still picked up
         check-latest: true
         cache: false
 
@@ -43,6 +43,13 @@ jobs:
         CGO_ENABLED: 1
         GOAMD64: v1
 
+    - name: Test
+      run: |
+        cd src
+        go test .
+      env:
+        CGO_ENABLED: 1
+
     - name: Add manifest and version info
       run: |
         cd src
@@ -52,6 +59,8 @@ jobs:
       shell: pwsh
       run: |
         Invoke-WebRequest -OutFile upx.zip https://github.com/upx/upx/releases/download/v5.0.2/upx-5.0.2-win64.zip
+        $upxHash = (Get-FileHash upx.zip -Algorithm SHA256).Hash
+        if ($upxHash -ne "1CFF6D6EE01C404D4A1AE56003056BD4CFA28D0A5CEA1D0950DAAF872A4FACC9") { throw "upx.zip checksum mismatch: $upxHash" }
         Expand-Archive -DestinationPath upx upx.zip
         upx/upx-5.0.2-win64/upx.exe --lzma -o src/ZeeCrypt.exe src/1.exe
 
@@ -74,7 +83,7 @@ jobs:
           -o ZeeCrypt-Installer.msi
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: build-windows
         path: |
@@ -92,7 +101,7 @@ jobs:
         echo "CHECKSUM_INSTALLER=$($msiHash.Hash)" >> $env:GITHUB_ENV
 
     - name: Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
       with:
         files: |
           src/ZeeCrypt.exe
