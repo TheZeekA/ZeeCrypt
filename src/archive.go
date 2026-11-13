@@ -27,13 +27,35 @@ import (
 var compressLevels = []string{"Don't compress", "Compress: fast", "Compress: balanced", "Compress: maximum"}
 var compressLevel int32
 
+// usesArchive reports whether encryption first packs the input into an
+// archive: always for several files or a folder, and for a single file
+// when compressing
+func usesArchive() bool {
+	return len(allFiles) > 1 || len(onlyFolders) > 0 || (mode == "encrypt" && compress)
+}
+
 // setCompression applies a choice from the compression combo: it sets
-// 'compress' and gives a pending archive output the matching extension
+// 'compress' and gives the output the matching extension
 func setCompression(level int32) {
+	wasCompressed := compress
 	compressLevel = level
 	compress = level > 0
-	if mode == "encrypt" && (len(allFiles) > 1 || len(onlyFolders) > 0) {
+	if mode != "encrypt" || outputFile == "" {
+		return
+	}
+	if len(allFiles) > 1 || len(onlyFolders) > 0 {
 		outputFile = withArchiveExt(outputFile)
+		return
+	}
+	// A single file: in its own .tar.zst when compressing, as is otherwise
+	base := strings.TrimSuffix(outputFile, ".pcv")
+	if wasCompressed {
+		base = strings.TrimSuffix(base, ".tar.zst")
+	}
+	if compress {
+		outputFile = base + ".tar.zst.pcv"
+	} else {
+		outputFile = base + ".pcv"
 	}
 }
 

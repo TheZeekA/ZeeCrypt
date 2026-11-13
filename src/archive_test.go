@@ -166,18 +166,51 @@ func TestArchiveNaming(t *testing.T) {
 		t.Fatalf("uncompressed output %q", outputFile)
 	}
 
-	// A single file named like an archive keeps its name
+	// A single file: in its own .tar.zst when compressing, its name kept
+	// otherwise (even when it looks like an archive)
 	setup()
-	z := filepath.Join(dir, "photos.zip")
+	z := filepath.Join(dir, "photos.tar.zst")
 	writeFile(t, z, []byte("z"))
 	onDrop([]string{z})
 	waitScan()
-	setCompression(2)
 	if outputFile != z+".pcv" {
 		t.Errorf("single file output %q", outputFile)
+	}
+	setCompression(2)
+	if outputFile != z+".tar.zst.pcv" {
+		t.Errorf("compressed single file output %q", outputFile)
+	}
+	setCompression(1)
+	if outputFile != z+".tar.zst.pcv" {
+		t.Errorf("level change output %q", outputFile)
+	}
+	setCompression(0)
+	if outputFile != z+".pcv" {
+		t.Errorf("uncompressed again: output %q", outputFile)
 	}
 
 	if !isArchiveVolume("x.tar.zst.pcv") || !isArchiveVolume("x.zip.pcv") || isArchiveVolume("x.txt.pcv") {
 		t.Error("isArchiveVolume")
 	}
+}
+
+func TestCompressSingleFile(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "report.txt")
+	text := bytes.Repeat([]byte("one file, very compressible "), 40000)
+	writeFile(t, in, text)
+	vol, st := encrypt(t, []string{in}, "pw", nil, func() { setCompression(3); delete = true })
+	mustStatus(t, st, "Completed")
+	if vol != in+".tar.zst.pcv" {
+		t.Fatalf("volume %q", vol)
+	}
+	if fi, _ := os.Stat(vol); fi.Size() > int64(len(text))/10 {
+		t.Fatalf("volume is %d bytes for %d bytes of text", fi.Size(), len(text))
+	}
+	mustOnly(t, dir, "report.txt.tar.zst.pcv") // "Delete files" removed only the input
+
+	_, st = decrypt(t, vol, "pw", nil, func() { autoUnzip = true; sameLevel = true })
+	mustStatus(t, st, "Completed")
+	mustContent(t, in, text)
+	mustOnly(t, dir, "report.txt.tar.zst.pcv", "report.txt")
 }

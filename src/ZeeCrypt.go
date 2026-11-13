@@ -821,7 +821,7 @@ func draw() {
 						giu.Checkbox("Paranoid mode", &paranoid),
 						giu.Tooltip("Provides the highest level of security attainable"),
 						giu.Dummy(-170, 0),
-						giu.Style().SetDisabled(recursively || !(len(allFiles) > 1 || len(onlyFolders) > 0)).To(
+						giu.Style().SetDisabled(recursively).To(
 							giu.Combo("##compress", compressLevels[compressLevel], compressLevels, &compressLevel).Size(150).OnChange(func() {
 								setCompression(compressLevel)
 							}),
@@ -927,7 +927,7 @@ func draw() {
 						// Prefill the filename
 						tmp := strings.TrimSuffix(filepath.Base(outputFile), ".pcv")
 						f.SetInitFilename(strings.TrimSuffix(tmp, filepath.Ext(tmp)))
-						if mode == "encrypt" && (len(allFiles) > 1 || len(onlyFolders) > 0) {
+						if mode == "encrypt" && usesArchive() {
 							f.SetInitFilename("encrypted-" + strconv.Itoa(int(time.Now().Unix())))
 						}
 
@@ -963,7 +963,7 @@ func draw() {
 				}
 				if requiredFreeSpace > 0 {
 					multiplier := 1
-					if len(allFiles) > 1 || len(onlyFolders) > 0 { // need a temporary zip file
+					if usesArchive() { // need a temporary archive
 						multiplier++
 					}
 					if deniability {
@@ -1473,7 +1473,7 @@ func work(prepared bool) {
 	}()
 
 	// Combine/compress all files into a .zip file if needed
-	if len(allFiles) > 1 || len(onlyFolders) > 0 {
+	if usesArchive() {
 		// Consider case where compressing only one file
 		files := allFiles
 		if len(allFiles) == 0 {
@@ -1487,6 +1487,9 @@ func work(prepared bool) {
 
 		// Open a temporary archive for writing
 		outputFile = withArchiveExt(outputFile)
+		if compress && !strings.HasSuffix(outputFile, ".tar.zst.pcv") { // a single file
+			outputFile = strings.TrimSuffix(outputFile, ".pcv") + ".tar.zst.pcv"
+		}
 		inputFile = strings.TrimSuffix(outputFile, ".pcv") + ".tmp"
 		if _, err := os.Stat(inputFile); err == nil {
 			mainStatus = "Please remove " + filepath.Base(inputFile)
@@ -3198,7 +3201,7 @@ func (z *zipNamer) fileName(path string) string {
 func outputNameFromDialog(file string) string {
 	var ext string
 	if mode == "encrypt" {
-		if len(allFiles) > 1 || len(onlyFolders) > 0 {
+		if usesArchive() {
 			ext = archiveExt() + ".pcv"
 		} else {
 			ext = filepath.Ext(inputFile) + ".pcv"
