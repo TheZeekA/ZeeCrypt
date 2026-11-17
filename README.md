@@ -104,3 +104,5 @@ Yes, for encryption. Password- and keyfile-protected volumes only use symmetric 
 
 # License
 This project is licensed under **GPL-3.0-only**, as a fork of [Picocrypt](https://github.com/Picocrypt/Picocrypt) (also GPL-3.0-only).
+
+PGP Signed & Verified
